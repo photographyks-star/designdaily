@@ -887,9 +887,10 @@ function rSettings(){
   // ── Bloc installation PWA ──
   const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
   const isAndroid=/android/i.test(navigator.userAgent);
+  const isMobile=isIOS||isAndroid;
   const isStandalone=window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone;
 
-  if(!isStandalone){
+  if(!isStandalone&&isMobile){
     const installCard=h('div',{style:{
       borderRadius:16,border:'1px solid '+(S.dark?'#374151':'#d1d5db'),
       background:S.dark?'#111827':'#fff',padding:16,marginBottom:20,
@@ -902,49 +903,42 @@ function rSettings(){
       ]),
     ]));
 
-    if(isAndroid||(!isIOS&&window._installPrompt)){
-      // Android — bouton direct
+    // Instructions étape par étape — fiables sur tous les navigateurs
+    const steps = isIOS ? [
+      ['1','🌐','Ouvrez cette page dans Safari (pas Chrome)'],
+      ['2','⎋','Appuyez sur le bouton Partage en bas de l\'écran'],
+      ['3','➕','Faites défiler → "Sur l\'écran d\'accueil"'],
+      ['4','✓','Appuyez sur "Ajouter"'],
+    ] : [
+      ['1','🌐','Ouvrez cette page dans Chrome'],
+      ['2','⋮','Appuyez sur les 3 points en haut à droite'],
+      ['3','➕','Appuyez sur "Ajouter à l\'écran d\'accueil"'],
+      ['4','✓','Confirmez en appuyant sur "Ajouter"'],
+    ];
+
+    const stepsDiv = h('div',{style:{background:S.dark?'#1f2937':'#f9fafb',borderRadius:12,padding:12}});
+    steps.forEach(([n,icon,txt])=>{
+      const row=h('div',{style:{display:'flex',alignItems:'center',gap:10,padding:'6px 0',borderBottom:'1px solid '+(S.dark?'#374151':'#e5e7eb')}});
+      row.appendChild(h('div',{style:{width:28,height:28,borderRadius:'50%',background:S.themeColor,color:'#fff',fontWeight:700,fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},n));
+      row.appendChild(h('span',{style:{fontSize:13,color:S.dark?'#e5e7eb':'#374151',lineHeight:1.4}},icon+' '+txt));
+      stepsDiv.appendChild(row);
+    });
+    installCard.appendChild(stepsDiv);
+
+    // Bouton d'installation automatique si disponible
+    if(window._installPrompt){
       const btn=h('button',{
-        id:'pwa-install-btn',
-        style:{
-          width:'100%',padding:'12px',borderRadius:12,border:'none',
-          background:window._installPrompt?S.themeColor:'#d1d5db',
-          color:'#fff',fontWeight:700,fontSize:14,cursor:'pointer',
-          display:'flex',alignItems:'center',justifyContent:'center',gap:8,
-        },
+        style:{width:'100%',marginTop:10,padding:'12px',borderRadius:12,border:'none',
+          background:S.themeColor,color:'#fff',fontWeight:700,fontSize:14,cursor:'pointer',
+          display:'flex',alignItems:'center',justifyContent:'center',gap:8},
         onclick:()=>{
-          if(!window._installPrompt)return;
           window._installPrompt.prompt();
           window._installPrompt.userChoice.then(()=>{window._installPrompt=null;render();});
         },
-      },[
-        h('span',{style:{fontSize:18}},'📲'),
-        window._installPrompt ? 'Installer sur cet appareil' : 'Ouvrir dans Chrome pour installer',
-      ]);
+      },[h('span',{},'📲'),' Installer maintenant']);
       installCard.appendChild(btn);
-      if(!window._installPrompt){
-        installCard.appendChild(h('p',{style:{fontSize:11,color:'#9ca3af',marginTop:8,textAlign:'center'}},
-          'Assurez-vous d\'ouvrir cette page dans Chrome (pas Samsung Browser ni Firefox)'));
-      }
-    } else if(isIOS){
-      // iOS — instructions Safari
-      installCard.appendChild(h('div',{style:{background:S.dark?'#1f2937':'#f9fafb',borderRadius:10,padding:12}},
-        h('ol',{style:{paddingLeft:18,margin:0}},
-          [
-            ['1','Ouvrez cette page dans Safari'],
-            ['2','Appuyez sur le bouton Partage '],
-            ['3','Faites défiler et appuyez sur "Sur l\'écran d\'accueil"'],
-            ['4','Appuyez sur "Ajouter"'],
-          ].map(([n,txt])=>h('li',{style:{fontSize:12,lineHeight:1.6,color:S.dark?'#d1d5db':'#374151',marginBottom:4}},
-            n==='2'?[txt,h('span',{style:{fontSize:16}},'⎋')]:[txt]
-          ))
-        )
-      ));
-    } else {
-      // Desktop ou autre
-      installCard.appendChild(h('p',{style:{fontSize:12,color:'#9ca3af',textAlign:'center'}},
-        '📱 Ouvrez cette URL sur votre smartphone pour installer l\'app'));
     }
+
     w.appendChild(installCard);
   } else {
     // Déjà installée
@@ -966,10 +960,66 @@ function rSettings(){
   // Apparence
   w.appendChild(h('p',{class:'sl'},[ic('palette',13),' Apparence']));
   const ac=h('div',{class:'scard',style:{marginBottom:20}});
+
+  // Palettes de couleurs par réglage
+  const palettes={
+    logoColor:['#000000','#111827','#1e3a5f','#7c3aed','#be123c','#ea580c','#ffffff','#f9fafb'],
+    themeColor:['#ea580c','#f59e0b','#16a34a','#2563eb','#7c3aed','#db2777','#dc2626','#0891b2'],
+    bgColor:   ['#f9fafb','#ffffff','#f3f4f6','#111827','#1e293b','#0f172a','#fef9ee','#f0fdf4'],
+    textColor: ['#111111','#1f2937','#374151','#6b7280','#f9fafb','#ffffff','#ea580c','#2563eb'],
+  };
+
   [['Logo','logoColor'],['Couleur principale','themeColor'],['Fond','bgColor'],['Texte','textColor']].forEach(([label,key])=>{
-    const row=h('div',{class:'srow'});row.appendChild(h('span',{style:{fontSize:13,fontWeight:500}},label));
-    row.appendChild(h('input',{type:'color',value:S[key],oninput:(e)=>{S[key]=e.target.value;saveState();render();}}));
-    ac.appendChild(row);
+    const wrap=h('div',{style:{paddingBottom:12,marginBottom:12,borderBottom:'1px solid '+(S.dark?'#374151':'#f0f0f0')}});
+    // Label + aperçu couleur actuelle
+    const top=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}});
+    top.appendChild(h('span',{style:{fontSize:13,fontWeight:600}},label));
+    // Aperçu + input natif caché (fallback desktop)
+    const preview=h('div',{style:{width:28,height:28,borderRadius:'50%',background:S[key],border:'2px solid '+(S.dark?'#4b5563':'#d1d5db'),cursor:'pointer',position:'relative',overflow:'hidden',flexShrink:0}});
+    const nativeInput=h('input',{type:'color',value:S[key]});
+    Object.assign(nativeInput.style,{position:'absolute',top:0,left:0,width:'100%',height:'100%',opacity:0,cursor:'pointer',border:'none',padding:0});
+    nativeInput.oninput=(e)=>{
+      S[key]=e.target.value;
+      preview.style.background=e.target.value;
+      // Mettre à jour les pastilles sélectionnées
+      wrap.querySelectorAll('.cpill').forEach(p=>{
+        p.style.transform=p.dataset.color===e.target.value?'scale(1.25)':'scale(1)';
+        p.style.boxShadow=p.dataset.color===e.target.value?'0 0 0 2px white, 0 0 0 4px '+S.themeColor:'none';
+      });
+      saveState();render();
+    };
+    preview.appendChild(nativeInput);
+    top.appendChild(preview);
+    wrap.appendChild(top);
+
+    // Pastilles de couleurs
+    const pills=h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}});
+    (palettes[key]||[]).forEach(color=>{
+      const pill=h('div',{class:'cpill'});
+      pill.dataset.color=color;
+      const isSelected=S[key]===color;
+      Object.assign(pill.style,{
+        width:32,height:32,borderRadius:'50%',background:color,cursor:'pointer',
+        border:'2px solid '+(S.dark?'#4b5563':'#e5e7eb'),
+        transform:isSelected?'scale(1.25)':'scale(1)',
+        boxShadow:isSelected?'0 0 0 2px white, 0 0 0 4px '+S.themeColor:'none',
+        transition:'transform .15s, box-shadow .15s',
+        flexShrink:0,
+      });
+      pill.onclick=()=>{
+        S[key]=color;
+        preview.style.background=color;
+        nativeInput.value=color;
+        pills.querySelectorAll('.cpill').forEach(p=>{
+          p.style.transform=p.dataset.color===color?'scale(1.25)':'scale(1)';
+          p.style.boxShadow=p.dataset.color===color?'0 0 0 2px white, 0 0 0 4px '+S.themeColor:'none';
+        });
+        saveState();render();
+      };
+      pills.appendChild(pill);
+    });
+    wrap.appendChild(pills);
+    ac.appendChild(wrap);
   });
   // Typographie
   const frow=h('div',{class:'srow'});
