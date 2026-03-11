@@ -18,14 +18,11 @@
 <div id="app"></div>
 <script>
 // PERSISTENCE
-const PERSIST=['dark','themeColor','logoColor','bgColor','textColor','fontFamily','interests','maxArticles','saved','offline','themes','colFolders','savedView'];
+const PERSIST=['dark','themeColor','logoColor','bgColor','textColor','fontFamily','interests','maxArticles','saved','offline','themes','colFolders','savedView','rssArticles','rssLastFetch'];
 let _lsAvailable=false;
 try{localStorage.setItem('_t','1');localStorage.removeItem('_t');_lsAvailable=true;}catch(e){}
-// Build 202603110304
-// Nettoyage des anciens caches RSS (rssArticles n'est plus persisté)
+// Build 202603110550 — rssArticles persisté pour affichage instantané
 if(_lsAvailable){
-  localStorage.removeItem('dd_rssArticles');
-  localStorage.removeItem('dd_rssLastFetch');
   localStorage.removeItem('dd_build');
 }
 function loadState(){if(!_lsAvailable)return{};try{const o={};PERSIST.forEach(k=>{const v=localStorage.getItem('dd_'+k);if(v!==null)o[k]=JSON.parse(v);});return o;}catch(e){return{};}}
@@ -133,7 +130,7 @@ async function fetchFeed(feed){
 
   // Proxy 1 : rss2json — le seul qui a fonctionné, en premier
   try{
-    const r=await fetchWithTimeout(`https://api.rss2json.com/v1/api.json?rss_url=${encoded}`,8000);
+    const r=await fetchWithTimeout(`https://api.rss2json.com/v1/api.json?rss_url=${encoded}`,4000);
     if(r.ok){
       const d=await r.json();
       if(d.status==='ok'&&d.items?.length){
@@ -167,20 +164,20 @@ async function fetchFeed(feed){
 
   // Proxy 2 : allorigins + parser XML natif
   try{
-    const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encoded}`,8000);
+    const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encoded}`,4000);
     if(r.ok){const d=await r.json();if(d.contents){const a=parseXML(d.contents,feed.title,feed.id);if(a.length)return a;}}
   }catch(e){console.warn('[allorigins]',feed.title,e.message);}
 
   // Proxy 3 : corsproxy.io
   try{
-    const r=await fetchWithTimeout(`https://corsproxy.io/?${encoded}`,8000);
+    const r=await fetchWithTimeout(`https://corsproxy.io/?${encoded}`,4000);
     if(r.ok){const txt=await r.text();const a=parseXML(txt,feed.title,feed.id);if(a.length)return a;}
   }catch(e){console.warn('[corsproxy]',feed.title,e.message);}
 
   // Proxy 4 : scraping HTML direct du site (si tous les RSS ont échoué)
   const siteUrl=feed.url.replace(/\/(feed|rss|atom)(\/.*)?(\?.*)?$/,'').replace(/\/feed\/?$/,'');
   try{
-    const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encodeURIComponent(siteUrl)}`,10000);
+    const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encodeURIComponent(siteUrl)}`,5000);
     if(r.ok){
       const d=await r.json();
       if(d.contents){
@@ -275,36 +272,63 @@ function scrapeHTML(html, feedTitle, feedId, baseUrl){
 }
 async function refreshAllFeeds(force=false){
   const now=Date.now();
+  // Si on a des articles en cache récents (<15min) et pas force → refresh silencieux en arrière-plan
+  const cacheAge=now-(S.rssLastFetch||0);
+  const hasCached=S.rssArticles&&S.rssArticles.length>0;
+  if(hasCached&&cacheAge<15*60*1000&&!force){
+    // Refresh silencieux sans spinner
+    _refreshSilent();
+    return;
+  }
   const feeds=S.folders.flatMap(f=>(f.feeds||[]).map(fd=>({...fd,folderId:f.id})));
   if(!feeds.length)return;
-  S.rssLoading=true;S.rssError=null;S.feedStatus={};render();
+  if(!hasCached){S.rssLoading=true;S.rssError=null;S.feedStatus={};render();}
+  else{S.rssLoading=true;}
+
+  // Tous les flux en parallèle — pas de boucle séquentielle
+  const allResults=await Promise.allSettled(feeds.map(f=>fetchFeed(f)));
   const results=[];
-  for(let i=0;i<feeds.length;i+=3){
-    const batch=feeds.slice(i,i+3);
-    const batchResults=await Promise.allSettled(batch.map(f=>fetchFeed(f)));
-    batchResults.forEach((r,j)=>{
-      const feed=batch[j];
-      if(r.status==='fulfilled'&&r.value.length){
-        const tagged=r.value.map(a=>({...a,source:feed.title,_feedId:feed.id,_folderId:feed.folderId}));
-        results.push(...tagged);
-        S.rssArticles=[...results];
-        S.feedStatus[feed.id]={ok:true,count:r.value.length,title:feed.title};
-      }else{
-        S.feedStatus[feed.id]={ok:false,count:0,title:feed.title,error:r.reason?.message||'Échec'};
-        console.warn('Feed failed:',feed.title,r.reason?.message);
-      }
-      render();
-    });
-  }
+  allResults.forEach((r,i)=>{
+    const feed=feeds[i];
+    if(r.status==='fulfilled'&&r.value.length){
+      const tagged=r.value.map(a=>({...a,source:feed.title,_feedId:feed.id,_folderId:feed.folderId}));
+      results.push(...tagged);
+      S.feedStatus[feed.id]={ok:true,count:r.value.length,title:feed.title};
+    }else{
+      S.feedStatus[feed.id]={ok:false,count:0,title:feed.title,error:r.reason?.message||'Échec'};
+    }
+  });
   if(results.length>0){
     S.rssArticles=results;S.rssLastFetch=now;saveState();
     const ok=Object.values(S.feedStatus).filter(s=>s.ok).length;
     const total=Object.values(S.feedStatus).length;
     toast(`✓ ${results.length} articles — ${ok}/${total} flux OK`);
-  }else{
+  }else if(!hasCached){
     S.rssError='Aucun flux chargé. Vérifiez votre connexion.';
   }
   S.rssLoading=false;render();
+}
+
+// Refresh silencieux en arrière-plan (pas de spinner)
+async function _refreshSilent(){
+  const feeds=S.folders.flatMap(f=>(f.feeds||[]).map(fd=>({...fd,folderId:f.id})));
+  const allResults=await Promise.allSettled(feeds.map(f=>fetchFeed(f)));
+  const results=[];
+  allResults.forEach((r,i)=>{
+    const feed=feeds[i];
+    if(r.status==='fulfilled'&&r.value.length){
+      results.push(...r.value.map(a=>({...a,source:feed.title,_feedId:feed.id,_folderId:feed.folderId})));
+      S.feedStatus[feed.id]={ok:true,count:r.value.length,title:feed.title};
+    }else{
+      S.feedStatus[feed.id]={ok:false,count:0,title:feed.title,error:r.reason?.message||'Échec'};
+    }
+  });
+  if(results.length>0){
+    S.rssArticles=results;S.rssLastFetch=Date.now();saveState();
+    const scr=document.querySelector('.scr');const pos=scr?scr.scrollTop:0;
+    render();
+    const scr2=document.querySelector('.scr');if(scr2)scr2.scrollTop=pos;
+  }
 }
 
 // FALLBACK ARTICLES
@@ -488,7 +512,16 @@ function getDisplayed(){
     return a.cat===S.filter;
   }).slice(0,S.maxArticles);
 }
-function toggleSave(a,e){if(e)e.stopPropagation();if(isSaved(a.id))S.saved=S.saved.filter(s=>s.id!==a.id);else S.saved.push({...a,savedAt:Date.now()});saveState();render();}
+function toggleSave(a,e){
+  if(e)e.stopPropagation();
+  if(isSaved(a.id))S.saved=S.saved.filter(s=>s.id!==a.id);else S.saved.push({...a,savedAt:Date.now()});
+  saveState();
+  const scr=document.querySelector('.scr');
+  const pos=scr?scr.scrollTop:0;
+  render();
+  const scr2=document.querySelector('.scr');
+  if(scr2)scr2.scrollTop=pos;
+}
 function toggleOffline(a,e){if(e)e.stopPropagation();if(!isSaved(a.id))S.saved.push({...a,savedAt:Date.now()});if(isOffline(a.id))S.offline=S.offline.filter(id=>id!==a.id);else{if(!S.offline)S.offline=[];S.offline.push(a.id);}saveState();toast(isOffline(a.id)?'Retiré hors ligne':'Disponible hors ligne ✓');}
 async function doSearch(){if(!S.searchQ.trim())return;S.searching=true;S.aiResp=null;render();await new Promise(r=>setTimeout(r,1200));S.aiResp='Résultat pour : "'+S.searchQ+'"\n\nPour l\'IA réelle, configurez votre clé Gemini.\n\n• Tendances : minimalisme fonctionnel\n• Accessibilité : critère primordial en 2024\n• IA générative : nouveau workflow pour designers';S.searching=false;render();}
 
@@ -590,7 +623,7 @@ async function fetchExcerpt(article){
   if(!article.url||article.url==='#')return'';
   try{
     const encoded=encodeURIComponent(article.url);
-    const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encoded}`,10000);
+    const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encoded}`,5000);
     if(!r.ok)return'';
     const d=await r.json();
     if(!d.contents)return'';
@@ -829,6 +862,80 @@ function rSaved(){
 
 function rSettings(){
   const w=h('div',{style:{padding:'16px'}});
+
+  // ── Bloc installation PWA ──
+  const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isAndroid=/android/i.test(navigator.userAgent);
+  const isStandalone=window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone;
+
+  if(!isStandalone){
+    const installCard=h('div',{style:{
+      borderRadius:16,border:'1px solid '+(S.dark?'#374151':'#d1d5db'),
+      background:S.dark?'#111827':'#fff',padding:16,marginBottom:20,
+    }});
+    installCard.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:12}},[
+      h('div',{style:{width:40,height:40,borderRadius:10,background:'#111827',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontWeight:700,fontStyle:'italic',fontSize:22,color:'#ea580c',fontFamily:'Georgia,serif'}},'D'),
+      h('div',{},[
+        h('div',{style:{fontWeight:700,fontSize:14,color:S.dark?'#f3f4f6':'#111'}},'Installer DesignDaily'),
+        h('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},'App native — plein écran, hors ligne'),
+      ]),
+    ]));
+
+    if(isAndroid||(!isIOS&&window._installPrompt)){
+      // Android — bouton direct
+      const btn=h('button',{
+        id:'pwa-install-btn',
+        style:{
+          width:'100%',padding:'12px',borderRadius:12,border:'none',
+          background:window._installPrompt?S.themeColor:'#d1d5db',
+          color:'#fff',fontWeight:700,fontSize:14,cursor:'pointer',
+          display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+        },
+        onclick:()=>{
+          if(!window._installPrompt)return;
+          window._installPrompt.prompt();
+          window._installPrompt.userChoice.then(()=>{window._installPrompt=null;render();});
+        },
+      },[
+        h('span',{style:{fontSize:18}},'📲'),
+        window._installPrompt ? 'Installer sur cet appareil' : 'Ouvrir dans Chrome pour installer',
+      ]);
+      installCard.appendChild(btn);
+      if(!window._installPrompt){
+        installCard.appendChild(h('p',{style:{fontSize:11,color:'#9ca3af',marginTop:8,textAlign:'center'}},
+          'Assurez-vous d\'ouvrir cette page dans Chrome (pas Samsung Browser ni Firefox)'));
+      }
+    } else if(isIOS){
+      // iOS — instructions Safari
+      installCard.appendChild(h('div',{style:{background:S.dark?'#1f2937':'#f9fafb',borderRadius:10,padding:12}},
+        h('ol',{style:{paddingLeft:18,margin:0}},
+          [
+            ['1','Ouvrez cette page dans Safari'],
+            ['2','Appuyez sur le bouton Partage '],
+            ['3','Faites défiler et appuyez sur "Sur l\'écran d\'accueil"'],
+            ['4','Appuyez sur "Ajouter"'],
+          ].map(([n,txt])=>h('li',{style:{fontSize:12,lineHeight:1.6,color:S.dark?'#d1d5db':'#374151',marginBottom:4}},
+            n==='2'?[txt,h('span',{style:{fontSize:16}},'⎋')]:[txt]
+          ))
+        )
+      ));
+    } else {
+      // Desktop ou autre
+      installCard.appendChild(h('p',{style:{fontSize:12,color:'#9ca3af',textAlign:'center'}},
+        '📱 Ouvrez cette URL sur votre smartphone pour installer l\'app'));
+    }
+    w.appendChild(installCard);
+  } else {
+    // Déjà installée
+    w.appendChild(h('div',{style:{
+      borderRadius:12,border:'1px solid #bbf7d0',background:'#f0fdf4',
+      padding:'10px 14px',marginBottom:20,display:'flex',alignItems:'center',gap:8,
+    }},[
+      h('span',{style:{fontSize:16}},'✅'),
+      h('span',{style:{fontSize:12,color:'#15803d',fontWeight:600}},'Application installée sur cet appareil'),
+    ]));
+  }
+
   w.appendChild(h('div',{class:'hero'},[
     h('div',{style:{width:44,height:44,borderRadius:'50%',background:S.dark?'#111827':'#fff',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 10px',color:S.themeColor}},ic('zap',22)),
     h('h2',{style:{fontWeight:700,color:S.dark?'#fb923c':'#9a3412',marginBottom:4}},'Centre de Veille'),
@@ -1105,49 +1212,19 @@ if('serviceWorker' in navigator){
   });
 }
 
-// ── PWA : bannière d'installation "Ajouter à l'écran d'accueil" ──
-let _deferredPrompt = null;
+// ── PWA : capture de l'événement d'installation ──
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
-  _deferredPrompt = e;
-  // Afficher une bannière discrète après 3s si pas encore installée
-  setTimeout(() => {
-    if(!_deferredPrompt) return;
-    const banner = document.createElement('div');
-    banner.id = 'install-banner';
-    banner.style.cssText = `
-      position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
-      background:#111827;color:#fff;padding:12px 16px;border-radius:16px;
-      display:flex;align-items:center;gap:12px;z-index:200;
-      box-shadow:0 8px 32px rgba(0,0,0,.4);font-size:13px;
-      max-width:340px;width:calc(100% - 32px);font-family:inherit;
-    `;
-    banner.innerHTML = `
-      <span style="font-size:22px">📲</span>
-      <div style="flex:1">
-        <div style="font-weight:700;margin-bottom:2px">Installer DesignDaily</div>
-        <div style="font-size:11px;color:#9ca3af">Accès rapide depuis l'écran d'accueil</div>
-      </div>
-      <button id="install-btn" style="padding:8px 14px;border-radius:10px;border:none;
-        background:#ea580c;color:#fff;font-weight:700;font-size:12px;cursor:pointer;
-        white-space:nowrap;font-family:inherit">Installer</button>
-      <button id="install-close" style="background:none;border:none;color:#6b7280;
-        cursor:pointer;padding:4px;font-size:18px;line-height:1">✕</button>
-    `;
-    document.body.appendChild(banner);
+  window._installPrompt = e;
+  // Mettre à jour le bouton si déjà rendu
+  const btn = document.getElementById('pwa-install-btn');
+  if(btn) btn.style.display = 'flex';
+  render();
+});
 
-    document.getElementById('install-btn').onclick = () => {
-      _deferredPrompt.prompt();
-      _deferredPrompt.userChoice.then(c => {
-        _deferredPrompt = null;
-        banner.remove();
-      });
-    };
-    document.getElementById('install-close').onclick = () => {
-      banner.remove();
-      _deferredPrompt = null;
-    };
-  }, 3000);
+window.addEventListener('appinstalled', () => {
+  window._installPrompt = null;
+  render();
 });
 </script>
 </body>
