@@ -967,47 +967,38 @@ function rSettings(){
 
   // Fonction pour créer une ligne de couleurs
   function mkColorRow(label, key, colors){
-    const wrap=h('div',{style:{marginBottom:14}});
-    wrap.appendChild(h('div',{style:{fontSize:12,fontWeight:600,color:S.dark?'#9ca3af':'#6b7280',marginBottom:8,textTransform:'uppercase',letterSpacing:'0.5px'}},label));
-    const row=h('div',{style:{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}});
+    const brd=S.dark?'#374151':'#e5e7eb';
+    const wrap=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'1px solid '+brd}});
+    wrap.appendChild(h('span',{style:{fontSize:12,fontWeight:500,flexShrink:0,width:70}},label));
+    // Pastilles
+    const pills=h('div',{style:{display:'flex',gap:5,flexWrap:'nowrap',overflow:'visible',flex:1,justifyContent:'flex-end',alignItems:'center'}});
     colors.forEach(function(c){
+      const isSel=S[key]===c;
       const dot=document.createElement('div');
-      dot.style.cssText='width:36px;height:36px;border-radius:50%;background:'+c+';cursor:pointer;flex-shrink:0;transition:transform .15s;-webkit-tap-highlight-color:transparent;'+(S[key]===c?'box-shadow:0 0 0 3px #fff,0 0 0 5px '+c+';transform:scale(1.15);':'border:2px solid '+(S.dark?'#4b5563':'#d1d5db')+';');
-      dot.addEventListener('touchstart', function(e){e.stopPropagation();}, {passive:true});
-      dot.addEventListener('click', function(e){
-        e.stopPropagation();
+      dot.setAttribute('data-ckey',c);
+      dot.style.cssText='width:20px;height:20px;min-width:20px;border-radius:50%;background:'+c+';cursor:pointer;'+(isSel?'outline:2px solid '+S.themeColor+';outline-offset:2px;':'border:1px solid '+brd+';');
+      dot.addEventListener('click',function(){
         S[key]=c;
-        saveState();
-        applyColors();
-        // Mettre à jour visuellement tous les dots de cette ligne
-        row.querySelectorAll('div[data-ckey]').forEach(function(d){
-          const sel=d.getAttribute('data-ckey')===c;
-          d.style.cssText='width:36px;height:36px;border-radius:50%;background:'+d.getAttribute('data-ckey')+';cursor:pointer;flex-shrink:0;transition:transform .15s;-webkit-tap-highlight-color:transparent;'+(sel?'box-shadow:0 0 0 3px #fff,0 0 0 5px '+d.getAttribute('data-ckey')+';transform:scale(1.15);':'border:2px solid '+(S.dark?'#4b5563':'#d1d5db')+';');
+        nativeInp.value=c;
+        preview.style.background=c;
+        pills.querySelectorAll('[data-ckey]').forEach(function(d){
+          const s=d.getAttribute('data-ckey')===c;
+          d.style.cssText='width:20px;height:20px;min-width:20px;border-radius:50%;background:'+d.getAttribute('data-ckey')+';cursor:pointer;'+(s?'outline:2px solid '+S.themeColor+';outline-offset:2px;':'border:1px solid '+brd+';');
         });
-        // Mettre à jour l'input natif
-        const inp=row.querySelector('input[type=color]');
-        if(inp) inp.value=c;
+        saveState(); applyColors();
       });
-      dot.setAttribute('data-ckey', c);
-      row.appendChild(dot);
+      pills.appendChild(dot);
     });
-    // Input couleur personnalisée
-    const customWrap=document.createElement('div');
-    customWrap.style.cssText='width:36px;height:36px;border-radius:50%;overflow:hidden;border:2px dashed '+(S.dark?'#4b5563':'#d1d5db')+';cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px;';
-    customWrap.title='Couleur personnalisée';
-    const inp=document.createElement('input');
-    inp.type='color';
-    inp.value=S[key];
-    inp.style.cssText='opacity:0;position:absolute;width:36px;height:36px;cursor:pointer;';
-    inp.addEventListener('input', function(){
-      S[key]=inp.value;
-      saveState();
-      applyColors();
-    });
-    customWrap.appendChild(document.createTextNode('🎨'));
-    customWrap.appendChild(inp);
-    row.appendChild(customWrap);
-    wrap.appendChild(row);
+    wrap.appendChild(pills);
+    // Aperçu couleur actuelle + input natif
+    const preview=document.createElement('div');
+    preview.style.cssText='width:20px;height:20px;min-width:20px;border-radius:50%;background:'+S[key]+';border:1px solid '+brd+';cursor:pointer;position:relative;overflow:hidden;margin-left:6px;flex-shrink:0;';
+    const nativeInp=document.createElement('input');
+    nativeInp.type='color'; nativeInp.value=S[key];
+    nativeInp.style.cssText='opacity:0;position:absolute;inset:0;width:100%;height:100%;cursor:pointer;padding:0;border:0;';
+    nativeInp.addEventListener('input',function(){S[key]=nativeInp.value;preview.style.background=nativeInp.value;saveState();applyColors();});
+    preview.appendChild(nativeInp);
+    wrap.appendChild(preview);
     return wrap;
   }
 
