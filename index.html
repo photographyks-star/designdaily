@@ -360,83 +360,74 @@ const SVG_IMGS={
 };
 function svgImg(cat){{return SVG_IMGS[cat]||SVG_IMGS.auto;}}
 
-function proxyImg(url){
-  if(!url||url.startsWith('data:'))return url;
-  if(url.includes('wsrv.nl')||url.includes('images.weserv.nl'))return url;
-  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=400&output=webp&n=-1`;
-}
-
 function imgWithFallback(el,url,svgCat){
   if(!url||url.startsWith('data:')){el.src=svgImg(svgCat||'auto');return;}
-  el.src=proxyImg(url);
-  el.onerror=function(){
-    this.onerror=function(){this.onerror=null;this.src=svgImg(svgCat||'auto');};
-    this.src=`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-  };
+  el.src=url;
+  el.onerror=function(){this.onerror=null;this.src=svgImg(svgCat||'auto');};
 }
 
 // Articles curatés — vrais liens, sources réelles
 const FB=[
   // ── Car Design News (10) ──
-  {id:'fb_cdn1',title:'Renault 5 E-Tech Electric wins Car Design Award 2024',source:'Car Design News',url:'https://www.cardesignnews.com/car-design-award/',time:'2j',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
-  {id:'fb_cdn2',title:'BMW Neue Klasse concept: the future of the brand',source:'Car Design News',url:'https://www.cardesignnews.com/news/bmw-neue-klasse/',time:'3j',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
-  {id:'fb_cdn3',title:'Hyundai IONIQ 6 wins World Car Design of the Year',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'4j',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
-  {id:'fb_cdn4',title:'Porsche Taycan — the evolution of an icon',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'5j',year:2024,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
-  {id:'fb_cdn5',title:'Audi design language: the progressive curves strategy',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'6j',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
-  {id:'fb_cdn6',title:'Toyota FJ Cruiser spiritual successor concept unveiled',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'7j',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
-  {id:'fb_cdn7',title:'Mercedes-Benz Vision EQXX: design lessons learned',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
-  {id:'fb_cdn8',title:'Rolls-Royce Spectre: electric grand touring redefined',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
-  {id:'fb_cdn9',title:'Genesis GV60 — Korean luxury design maturity',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
-  {id:'fb_cdn10',title:'Polestar 4: redefining the electric SUV silhouette',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
+  {id:'fb_cdn1',title:'Renault 5 E-Tech Electric wins Car Design Award 2024',source:'Car Design News',url:'https://www.cardesignnews.com/car-design-award/',time:'2j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1617788138017-80ad40651399?w=400&q=80',read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cdn2',title:'BMW Neue Klasse concept: the future of the brand',source:'Car Design News',url:'https://www.cardesignnews.com/news/bmw-neue-klasse/',time:'3j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1555215695-3004980ad54e?w=400&q=80',read:'6 min',_folderId:'f_auto'},
+  {id:'fb_cdn3',title:'Hyundai IONIQ 6 wins World Car Design of the Year',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'4j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1619767886558-efdc259cde1a?w=400&q=80',read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cdn4',title:'Porsche Taycan — the evolution of an icon',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'5j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=400&q=80',read:'7 min',_folderId:'f_auto'},
+  {id:'fb_cdn5',title:'Audi design language: the progressive curves strategy',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'6j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=400&q=80',read:'6 min',_folderId:'f_auto'},
+  {id:'fb_cdn6',title:'Toyota FJ Cruiser spiritual successor concept unveiled',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'7j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1541443131876-44b03de101c5?w=400&q=80',read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cdn7',title:'Mercedes-Benz Vision EQXX: design lessons learned',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'1sem',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&q=80',read:'8 min',_folderId:'f_auto'},
+  {id:'fb_cdn8',title:'Rolls-Royce Spectre: electric grand touring redefined',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'1sem',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=400&q=80',read:'6 min',_folderId:'f_auto'},
+  {id:'fb_cdn9',title:'Genesis GV60 — Korean luxury design maturity',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'2sem',year:2023,cat:'auto',img:'https://images.unsplash.com/photo-1544636331-e26879cd4d9b?w=400&q=80',read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cdn10',title:'Polestar 4: redefining the electric SUV silhouette',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'2sem',year:2023,cat:'auto',img:'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=400&q=80',read:'7 min',_folderId:'f_auto'},
   // ── Car Body Design (8) ──
-  {id:'fb_cbd1',title:'Kia EV9 Design Process: From Sketch to Production',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'2j',year:2024,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
-  {id:'fb_cbd2',title:'Peugeot E-3008: Panoramic i-Cockpit design analysis',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'4j',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
-  {id:'fb_cbd3',title:'Volvo EX90: Scandinavian minimalism at its peak',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'5j',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
-  {id:'fb_cbd4',title:'Citroën C3 — the return of accessible design',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'6j',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
-  {id:'fb_cbd5',title:'Lamborghini Revuelto: drama in every line',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
-  {id:'fb_cbd6',title:'BYD Seal interior design breakdown',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
-  {id:'fb_cbd7',title:'Alpine A290: radical hatchback design study',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
-  {id:'fb_cbd8',title:'Honda e:Ny1 — compact EV proportions explained',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
+  {id:'fb_cbd1',title:'Kia EV9 Design Process: From Sketch to Production',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'2j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1511919884226-fd3cad34687c?w=400&q=80',read:'7 min',_folderId:'f_auto'},
+  {id:'fb_cbd2',title:'Peugeot E-3008: Panoramic i-Cockpit design analysis',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'4j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?w=400&q=80',read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cbd3',title:'Volvo EX90: Scandinavian minimalism at its peak',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'5j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=400&q=80',read:'6 min',_folderId:'f_auto'},
+  {id:'fb_cbd4',title:'Citroën C3 — the return of accessible design',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'6j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1502877338535-766e1452684a?w=400&q=80',read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cbd5',title:'Lamborghini Revuelto: drama in every line',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'1sem',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1525609004556-c46c7d6cf023?w=400&q=80',read:'8 min',_folderId:'f_auto'},
+  {id:'fb_cbd6',title:'BYD Seal interior design breakdown',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'1sem',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=400&q=80',read:'6 min',_folderId:'f_auto'},
+  {id:'fb_cbd7',title:'Alpine A290: radical hatchback design study',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'2sem',year:2023,cat:'auto',img:'https://images.unsplash.com/photo-1471444928139-48c5bf5173f8?w=400&q=80',read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cbd8',title:'Honda e:Ny1 — compact EV proportions explained',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'2sem',year:2023,cat:'auto',img:'https://images.unsplash.com/photo-1526726538690-5cbf956ae2fd?w=400&q=80',read:'7 min',_folderId:'f_auto'},
   // ── Lignes Auto (8) ──
-  {id:'fb_la1',title:'Ferrari Purosangue : retour aux lignes pures du cheval cabré',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'1j',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
-  {id:'fb_la2',title:'Renault Emblème : le concept qui réinvente la berline française',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'3j',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
-  {id:'fb_la3',title:'Citroën et le néo-rétro : retour vers le futur',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'5j',year:2024,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
-  {id:'fb_la4',title:'Analyse du design de la Mégane E-Tech Electric',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
-  {id:'fb_la5',title:'Simca 1100 : portrait d\'une berline avant-gardiste',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'1sem',year:2023,cat:'auto',img:svgImg('auto'),read:'9 min',_folderId:'f_auto'},
-  {id:'fb_la6',title:'La DS 19 : 60 ans après, toujours moderne',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'10 min',_folderId:'f_auto'},
-  {id:'fb_la7',title:'Mercedes-Benz 140 ans : l\'ADN du design allemand',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'2j',year:2026,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
-  {id:'fb_la8',title:'Peugeot 504 à 604 : l\'histoire de l\'élégance française',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'4j',year:2026,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
+  {id:'fb_la1',title:'Ferrari Purosangue : retour aux lignes pures du cheval cabré',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'1j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1562911791-c7a97b729ec5?w=400&q=80',read:'8 min',_folderId:'f_auto'},
+  {id:'fb_la2',title:'Renault Emblème : le concept qui réinvente la berline française',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'3j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?w=400&q=80',read:'6 min',_folderId:'f_auto'},
+  {id:'fb_la3',title:'Citroën et le néo-rétro : retour vers le futur',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'5j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=400&q=80',read:'7 min',_folderId:'f_auto'},
+  {id:'fb_la4',title:'Analyse du design de la Mégane E-Tech Electric',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'1sem',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?w=400&q=80',read:'6 min',_folderId:'f_auto'},
+  {id:'fb_la5',title:'Simca 1100 : portrait d\'une berline avant-gardiste',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'1sem',year:2023,cat:'auto',img:'https://images.unsplash.com/photo-1471444928139-48c5bf5173f8?w=400&q=80',read:'9 min',_folderId:'f_auto'},
+  {id:'fb_la6',title:'La DS 19 : 60 ans après, toujours moderne',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'2sem',year:2023,cat:'auto',img:'https://images.unsplash.com/photo-1551830820-330a71b99659?w=400&q=80',read:'10 min',_folderId:'f_auto'},
+  {id:'fb_la7',title:'Mercedes-Benz 140 ans : l\'ADN du design allemand',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'2j',year:2026,cat:'auto',img:'https://images.unsplash.com/photo-1606664515524-ed2f786a0bd6?w=400&q=80',read:'8 min',_folderId:'f_auto'},
+  {id:'fb_la8',title:'Peugeot 504 à 604 : l\'histoire de l\'élégance française',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'4j',year:2026,cat:'auto',img:'https://images.unsplash.com/photo-1503736334956-4c8f8e92946d?w=400&q=80',read:'7 min',_folderId:'f_auto'},
   // ── Form Trends (6) ──
-  {id:'fb_ft1',title:'Japanese Automotive Design Trends 2025',source:'Form Trends',url:'https://www.formtrends.com/',time:'2j',year:2025,cat:'auto',img:svgImg('auto'),read:'9 min',_folderId:'f_auto'},
-  {id:'fb_ft2',title:'Interior Design: How AI is reshaping the cabin',source:'Form Trends',url:'https://www.formtrends.com/',time:'4j',year:2025,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
-  {id:'fb_ft3',title:'Biophilic design enters the automotive interior',source:'Form Trends',url:'https://www.formtrends.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
-  {id:'fb_ft4',title:'HMI trends: the shift to ambient interaction',source:'Form Trends',url:'https://www.formtrends.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
-  {id:'fb_ft5',title:'Color & material trends in mobility 2024',source:'Form Trends',url:'https://www.formtrends.com/',time:'2sem',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
-  {id:'fb_ft6',title:'Chinese EV design language: a global influence',source:'Form Trends',url:'https://www.formtrends.com/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'10 min',_folderId:'f_auto'},
+  {id:'fb_ft1',title:'Japanese Automotive Design Trends 2025',source:'Form Trends',url:'https://www.formtrends.com/',time:'2j',year:2025,cat:'auto',img:'https://images.unsplash.com/photo-1445743432342-4c1f9891cf73?w=400&q=80',read:'9 min',_folderId:'f_auto'},
+  {id:'fb_ft2',title:'Interior Design: How AI is reshaping the cabin',source:'Form Trends',url:'https://www.formtrends.com/',time:'4j',year:2025,cat:'auto',img:'https://images.unsplash.com/photo-1507721999472-8ed4421c4af2?w=400&q=80',read:'7 min',_folderId:'f_auto'},
+  {id:'fb_ft3',title:'Biophilic design enters the automotive interior',source:'Form Trends',url:'https://www.formtrends.com/',time:'1sem',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=400&q=80',read:'6 min',_folderId:'f_auto'},
+  {id:'fb_ft4',title:'HMI trends: the shift to ambient interaction',source:'Form Trends',url:'https://www.formtrends.com/',time:'1sem',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1518770660439-4636190af475?w=400&q=80',read:'8 min',_folderId:'f_auto'},
+  {id:'fb_ft5',title:'Color & material trends in mobility 2024',source:'Form Trends',url:'https://www.formtrends.com/',time:'2sem',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=400&q=80',read:'5 min',_folderId:'f_auto'},
+  {id:'fb_ft6',title:'Chinese EV design language: a global influence',source:'Form Trends',url:'https://www.formtrends.com/',time:'2sem',year:2023,cat:'auto',img:'https://images.unsplash.com/photo-1559825481-12a05cc00344?w=400&q=80',read:'10 min',_folderId:'f_auto'},
   // ── Carstyling.ru (4) ──
-  {id:'fb_cs1',title:'Soviet automotive design heritage: Zil & Volga',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'3j',year:2024,cat:'auto',img:svgImg('auto'),read:'10 min',_folderId:'f_auto'},
-  {id:'fb_cs2',title:'Moskvitch concept revival: from USSR to EV',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
-  {id:'fb_cs3',title:'Italian concept cars of the 1970s: a retrospective',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'12 min',_folderId:'f_auto'},
-  {id:'fb_cs4',title:'Pininfarina archive: 50 years of timeless design',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'9 min',_folderId:'f_auto'},
+  {id:'fb_cs1',title:'Soviet automotive design heritage: Zil & Volga',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'3j',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1558980664-2506fca6e530?w=400&q=80',read:'10 min',_folderId:'f_auto'},
+  {id:'fb_cs2',title:'Moskvitch concept revival: from USSR to EV',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'1sem',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1617654112368-307921291f42?w=400&q=80',read:'8 min',_folderId:'f_auto'},
+  {id:'fb_cs3',title:'Italian concept cars of the 1970s: a retrospective',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'2sem',year:2023,cat:'auto',img:'https://images.unsplash.com/photo-1536700503339-1e4b06520771?w=400&q=80',read:'12 min',_folderId:'f_auto'},
+  {id:'fb_cs4',title:'Pininfarina archive: 50 years of timeless design',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'2sem',year:2023,cat:'auto',img:'https://images.unsplash.com/photo-1489824904134-891ab64532f1?w=400&q=80',read:'9 min',_folderId:'f_auto'},
   // ── Automotive Design Planet (4) ──
-  {id:'fb_adp1',title:'Stellantis design directors on the future of EVs',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'1j',year:2025,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
-  {id:'fb_adp2',title:'Interview: Hyundai chief designer on emotional design',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'3j',year:2025,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
-  {id:'fb_adp3',title:'Exterior lighting as brand identity: 2025 trends',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
-  {id:'fb_adp4',title:'AI-generated concept cars: hype or future?',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'2sem',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
+  {id:'fb_adp1',title:'Stellantis design directors on the future of EVs',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'1j',year:2025,cat:'auto',img:'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?w=400&q=80',read:'6 min',_folderId:'f_auto'},
+  {id:'fb_adp2',title:'Interview: Hyundai chief designer on emotional design',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'3j',year:2025,cat:'auto',img:'https://images.unsplash.com/photo-1469285994282-454ceb49e63c?w=400&q=80',read:'7 min',_folderId:'f_auto'},
+  {id:'fb_adp3',title:'Exterior lighting as brand identity: 2025 trends',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'1sem',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1558618047-f4e80d895e6c?w=400&q=80',read:'5 min',_folderId:'f_auto'},
+  {id:'fb_adp4',title:'AI-generated concept cars: hype or future?',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'2sem',year:2024,cat:'auto',img:'https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=400&q=80',read:'8 min',_folderId:'f_auto'},
   // ── Veille Générale ──
   // ── Intelligence Artificielle (10) ──
-  {id:'fb_ia1',title:'GPT-4o : analyse des capacités multimodales',source:'MIT Technology Review AI',url:'https://www.technologyreview.com/topic/artificial-intelligence/',time:'1j',year:2025,cat:'ai',img:svgImg('ai'),read:'7 min',_folderId:'f_ia'},
-  {id:'fb_ia2',title:'Diffusion models vs GANs: where we stand in 2025',source:'The Gradient',url:'https://thegradient.pub/',time:'2j',year:2025,cat:'ai',img:svgImg('ai'),read:'9 min',_folderId:'f_ia'},
-  {id:'fb_ia3',title:'Mixtral et les LLM open-source : état de l\'art',source:'Hugging Face Blog',url:'https://huggingface.co/blog',time:'3j',year:2025,cat:'ai',img:svgImg('ai'),read:'8 min',_folderId:'f_ia'},
-  {id:'fb_ia4',title:'AI safety: why alignment matters more than ever',source:'AI Alignment Forum',url:'https://www.alignmentforum.org/',time:'4j',year:2025,cat:'ai',img:svgImg('ai'),read:'12 min',_folderId:'f_ia'},
-  {id:'fb_ia5',title:'Prompt engineering for designers: a practical guide',source:'Towards Data Science',url:'https://towardsdatascience.com/',time:'5j',year:2025,cat:'ai',img:svgImg('ai'),read:'6 min',_folderId:'f_ia'},
-  {id:'fb_ia6',title:'Sora and the future of AI-generated video',source:'MIT Technology Review AI',url:'https://www.technologyreview.com/topic/artificial-intelligence/',time:'1sem',year:2025,cat:'ai',img:svgImg('ai'),read:'8 min',_folderId:'f_ia'},
-  {id:'fb_ia7',title:'Fine-tuning LLMs on custom datasets: best practices',source:'Hugging Face Blog',url:'https://huggingface.co/blog',time:'1sem',year:2024,cat:'ai',img:svgImg('ai'),read:'10 min',_folderId:'f_ia'},
-  {id:'fb_ia8',title:'IA générative et droit d\'auteur : le débat s\'intensifie',source:'The Gradient',url:'https://thegradient.pub/',time:'2sem',year:2024,cat:'ai',img:svgImg('ai'),read:'7 min',_folderId:'f_ia'},
-  {id:'fb_ia9',title:'Reinforcement learning from human feedback (RLHF) explained',source:'Import AI',url:'https://jack-clark.net/',time:'2sem',year:2024,cat:'ai',img:svgImg('ai'),read:'9 min',_folderId:'f_ia'},
-  {id:'fb_ia10',title:'Claude vs GPT-4 vs Gemini : comparatif 2025',source:'Towards Data Science',url:'https://towardsdatascience.com/',time:'3j',year:2025,cat:'ai',img:svgImg('ai'),read:'11 min',_folderId:'f_ia'},
-  {id:'fb_sm1',title:"L'IA générative dans le workflow des designers",source:'Smashing Magazine',url:'https://www.smashingmagazine.com',time:'2h',year:2024,cat:'ai',img:svgImg('ai'),read:'5 min',_folderId:'f1'},
-  {id:'fb_sm2',title:'Design systems at scale: lessons from the field',source:'Smashing Magazine',url:'https://www.smashingmagazine.com',time:'1j',year:2024,cat:'ui',img:svgImg('ui'),read:'8 min',_folderId:'f1'},
+  {id:'fb_ia1',title:'GPT-4o : analyse des capacités multimodales',source:'MIT Technology Review AI',url:'https://www.technologyreview.com/topic/artificial-intelligence/',time:'1j',year:2025,cat:'ai',img:'https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=400&q=80',read:'7 min',_folderId:'f_ia'},
+  {id:'fb_ia2',title:'Diffusion models vs GANs: where we stand in 2025',source:'The Gradient',url:'https://thegradient.pub/',time:'2j',year:2025,cat:'ai',img:'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=400&q=80',read:'9 min',_folderId:'f_ia'},
+  {id:'fb_ia3',title:'Mixtral et les LLM open-source : état de l\'art',source:'Hugging Face Blog',url:'https://huggingface.co/blog',time:'3j',year:2025,cat:'ai',img:'https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=400&q=80',read:'8 min',_folderId:'f_ia'},
+  {id:'fb_ia4',title:'AI safety: why alignment matters more than ever',source:'AI Alignment Forum',url:'https://www.alignmentforum.org/',time:'4j',year:2025,cat:'ai',img:'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=400&q=80',read:'12 min',_folderId:'f_ia'},
+  {id:'fb_ia5',title:'Prompt engineering for designers: a practical guide',source:'Towards Data Science',url:'https://towardsdatascience.com/',time:'5j',year:2025,cat:'ai',img:'https://images.unsplash.com/photo-1507146426996-ef05306b995a?w=400&q=80',read:'6 min',_folderId:'f_ia'},
+  {id:'fb_ia6',title:'Sora and the future of AI-generated video',source:'MIT Technology Review AI',url:'https://www.technologyreview.com/topic/artificial-intelligence/',time:'1sem',year:2025,cat:'ai',img:'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=400&q=80',read:'8 min',_folderId:'f_ia'},
+  {id:'fb_ia7',title:'Fine-tuning LLMs on custom datasets: best practices',source:'Hugging Face Blog',url:'https://huggingface.co/blog',time:'1sem',year:2024,cat:'ai',img:'https://images.unsplash.com/photo-1555099962-4199c345e5dd?w=400&q=80',read:'10 min',_folderId:'f_ia'},
+  {id:'fb_ia8',title:'IA générative et droit d\'auteur : le débat s\'intensifie',source:'The Gradient',url:'https://thegradient.pub/',time:'2sem',year:2024,cat:'ai',img:'https://images.unsplash.com/photo-1581291518633-83b4ebd1d83e?w=400&q=80',read:'7 min',_folderId:'f_ia'},
+  {id:'fb_ia9',title:'Reinforcement learning from human feedback (RLHF) explained',source:'Import AI',url:'https://jack-clark.net/',time:'2sem',year:2024,cat:'ai',img:'https://images.unsplash.com/photo-1587620962725-abab19836100?w=400&q=80',read:'9 min',_folderId:'f_ia'},
+  {id:'fb_ia10',title:'Claude vs GPT-4 vs Gemini : comparatif 2025',source:'Towards Data Science',url:'https://towardsdatascience.com/',time:'3j',year:2025,cat:'ai',img:'https://images.unsplash.com/photo-1586717799252-bd134ad00e26?w=400&q=80',read:'11 min',_folderId:'f_ia'},
+  {id:'fb_sm1',title:"L'IA générative dans le workflow des designers",source:'Smashing Magazine',url:'https://www.smashingmagazine.com',time:'2h',year:2024,cat:'ai',img:'https://images.unsplash.com/photo-1559028012-481c04fa702d?w=400&q=80',read:'5 min',_folderId:'f1'},
+  {id:'fb_sm2',title:'Design systems at scale: lessons from the field',source:'Smashing Magazine',url:'https://www.smashingmagazine.com',time:'1j',year:2024,cat:'ui',img:'https://images.unsplash.com/photo-1496171367470-9ed9a91ea931?w=400&q=80',read:'8 min',_folderId:'f1'},
   {id:'fb_sm3',title:'CSS container queries: a practical guide',source:'Smashing Magazine',url:'https://www.smashingmagazine.com',time:'2j',year:2024,cat:'tech',img:svgImg('tech'),read:'6 min',_folderId:'f1'},
   {id:'fb_ux1',title:'Guide complet des micro-interactions UI',source:'UX Collective',url:'https://uxdesign.cc',time:'4h',year:2024,cat:'ux',img:svgImg('ux'),read:'4 min',_folderId:'f1'},
   {id:'fb_ux2',title:'The psychology of empty states in product design',source:'UX Collective',url:'https://uxdesign.cc',time:'1j',year:2024,cat:'ux',img:svgImg('ux'),read:'5 min',_folderId:'f1'},
