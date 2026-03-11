@@ -1016,6 +1016,18 @@ function rSettings(){
   ac.appendChild(mkColorRow('Fond',              'bgColor',    ['#f9fafb','#ffffff','#f3f4f6','#111827','#1e293b','#0f172a','#fef9ee','#f0fdf4']));
   ac.appendChild(mkColorRow('Texte',             'textColor',  ['#111111','#1f2937','#374151','#6b7280','#f9fafb','#ffffff','#ea580c','#2563eb']));
 
+  // Typographie
+  const frow=h('div',{class:'srow',style:{paddingTop:8}});
+  frow.appendChild(h('span',{style:{fontSize:13,fontWeight:600}},'Typographie'));
+  const fontSel=h('select',{style:{padding:'6px 10px',borderRadius:8,border:'1px solid #d1d5db',background:S.dark?'#1f2937':'#fff',color:S.dark?'#f3f4f6':'#111',fontSize:12,outline:'none',cursor:'pointer'},onchange:(e)=>{S.fontFamily=e.target.value;saveState();render();}});
+  [['system','Système (défaut)'],['serif','Serif (Georgia)'],['mono','Mono (Code)'],['rounded','Rounded (Nunito)']].forEach(([val,label])=>{
+    const opt=h('option',{value:val},label);
+    if(S.fontFamily===val)opt.selected=true;
+    fontSel.appendChild(opt);
+  });
+  frow.appendChild(fontSel);
+  ac.appendChild(frow);
+  w.appendChild(ac);
 
   // Sujets
   w.appendChild(h('p',{class:'sl'},[ic('tag',13),' Sujets']));
