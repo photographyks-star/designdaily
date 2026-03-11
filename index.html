@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="DesignDaily"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="theme-color" content="#ea580c"/>
+<meta name="description" content="Veille design automobile et IA — votre flux personnalisé"/>
+<link rel="manifest" href="./manifest.json"/>
+<link rel="apple-touch-icon" href="./icon-192.png"/>
+<link rel="icon" type="image/png" sizes="48x48" href="./icon-48.png"/>
+<title>DesignDaily</title>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// PERSISTENCE
+const PERSIST=['dark','themeColor','logoColor','bgColor','textColor','fontFamily','interests','maxArticles','saved','offline','themes','colFolders','savedView'];
+let _lsAvailable=false;
+try{localStorage.setItem('_t','1');localStorage.removeItem('_t');_lsAvailable=true;}catch(e){}
+// Build 202603110304
+// Nettoyage des anciens caches RSS (rssArticles n'est plus persisté)
+if(_lsAvailable){
+  localStorage.removeItem('dd_rssArticles');
+  localStorage.removeItem('dd_rssLastFetch');
+  localStorage.removeItem('dd_build');
+}
+function loadState(){if(!_lsAvailable)return{};try{const o={};PERSIST.forEach(k=>{const v=localStorage.getItem('dd_'+k);if(v!==null)o[k]=JSON.parse(v);});return o;}catch(e){return{};}}
+function saveState(){if(!_lsAvailable)return;try{PERSIST.forEach(k=>{if(S[k]!==undefined)localStorage.setItem('dd_'+k,JSON.stringify(S[k]));});}catch(e){}}
+
+// STATE
+const DEF={
+  tab:'feed',filter:'f_auto',detail:null,
+  dark:false,themeColor:'#ea580c',logoColor:'#000000',bgColor:'#f9fafb',textColor:'#111111',fontFamily:'system',
+  interests:['ui','ux','ai','tech','auto'],maxArticles:100,
+  saved:[],offline:[],savedView:'list',
+  themes:[{id:'default',name:'Auto & IA',keywords:['automobile','automotive','car design','concept','voiture','carrosserie','véhicule','design automobile','ia','intelligence artificielle']}],
+  folders:[
+    {id:'f1',name:'Veille Générale',feeds:[
+      {id:101,title:'Smashing Magazine',url:'https://www.smashingmagazine.com/feed/'},
+      {id:102,title:'UX Collective',url:'https://uxdesign.cc/feed'}
+    ]},
+    {id:'f_ia',name:'Intelligence Artificielle',feeds:[
+      {id:301,title:'MIT Technology Review AI',url:'https://www.technologyreview.com/feed/'},
+      {id:302,title:'The Gradient',url:'https://thegradient.pub/rss/'},
+      {id:303,title:'Hugging Face Blog',url:'https://huggingface.co/blog/feed.xml'},
+      {id:304,title:'Import AI',url:'https://jack-clark.net/feed/'},
+      {id:305,title:'AI Alignment Forum',url:'https://www.alignmentforum.org/feed.xml'},
+      {id:306,title:'Towards Data Science',url:'https://towardsdatascience.com/feed'},
+    ]},
+    {id:'f_auto',name:'Design Automobile',feeds:[
+      {id:201,title:'Car Design News',url:'https://www.cardesignnews.com/feed/'},
+      {id:202,title:'Car Body Design',url:'https://www.carbodydesign.com/feed/'},
+      {id:203,title:'Lignes Auto',url:'https://lignesauto.fr/feed/'},
+      {id:204,title:'Carstyling.ru',url:'https://carstyling.ru/en/rss/all.xml'},
+      {id:205,title:'Form Trends',url:'https://www.formtrends.com/feed/'},
+      {id:206,title:'Automotive Design Planet',url:'https://automotivedesignplanet.com/feed/'},
+    ]}
+  ],
+  colFolders:[],
+  categories:[
+    {id:'ui',name:'UI Design',bg:'#dbeafe',fg:'#1d4ed8'},
+    {id:'ux',name:'UX Research',bg:'#f3e8ff',fg:'#7e22ce'},
+    {id:'typo',name:'Typographie',bg:'#fef9c3',fg:'#854d0e'},
+    {id:'branding',name:'Branding',bg:'#fee2e2',fg:'#b91c1c'},
+    {id:'motion',name:'Motion',bg:'#dcfce7',fg:'#15803d'},
+    {id:'ai',name:'IA & Design',bg:'#fce7f3',fg:'#be185d'},
+    {id:'tech',name:'Tech & Futur',bg:'#cffafe',fg:'#0e7490'},
+    {id:'auto',name:'Design Auto',bg:'#fef3c7',fg:'#b45309'},
+  ],
+  rssArticles:[],rssLastFetch:0,rssLoading:false,rssError:null,hasNewRss:false,feedStatus:{},
+  showSearch:false,searchQ:'',aiResp:null,searching:false,
+  toast:null,expandYear:null,expandFolder:null,expandColFolder:null,
+  editThemeId:null,creatingTheme:false,newThemeName:'',newThemeKw:'',
+  creatingColFolder:false,newColFolderName:'',
+  creatingRssFolder:false,newRssFolderName:'',newFeedUrl:'',selFolderId:'f1',
+  editingCats:false,newCatName:'',moveArticle:null,
+};
+const _saved=loadState();
+const S=Object.assign({},DEF,_saved);
+// reset ephemeral
+['tab','detail','showSearch','aiResp','searching','toast','rssLoading','rssError','moveArticle',
+ 'creatingTheme','creatingColFolder','creatingRssFolder','newThemeName','newThemeKw','newColFolderName',
+ 'newRssFolderName','newFeedUrl','editingCats','expandYear','expandFolder','expandColFolder'].forEach(k=>S[k]=DEF[k]);
+S.tab='feed';
+if(!_saved.filter) S.filter='f_auto'; // dossier Auto par défaut au 1er lancement
+
+// RSS
+function guessCat(t){
+  t=(t||'').toLowerCase();
+  if(/automobile|automotive|car design|concept car|voiture|carrosserie|supercar|hypercar|lignes auto|carbody|carstyling|formtrends/.test(t))return'auto';
+  if(/\bia\b|artificial intelligence|machine learning|gpt|llm/.test(t))return'ai';
+  if(/motion|animation/.test(t))return'motion';
+  if(/typograph|font|police/.test(t))return'typo';
+  if(/brand|logo/.test(t))return'branding';
+  if(/ux|user experience/.test(t))return'ux';
+  if(/tech|futur|innovation/.test(t))return'tech';
+  return'ui';
+}
+function timeAgo(d){try{const s=(Date.now()-new Date(d))/1000;if(s<0)return'';if(s<3600)return Math.floor(s/60)+'min';if(s<86400)return Math.floor(s/3600)+'h';if(s<604800)return Math.floor(s/86400)+'j';return Math.floor(s/604800)+'sem';}catch(e){return'';}}
+const CACHE_MS=10*60*1000;
+
+function fetchWithTimeout(url, ms=10000){
+  const ctrl=new AbortController();
+  const tid=setTimeout(()=>ctrl.abort(),ms);
+  return fetch(url,{signal:ctrl.signal}).finally(()=>clearTimeout(tid));
+}
+
+function parseXML(xmlStr,feedTitle,feedId){
+  try{
+    const doc=new DOMParser().parseFromString(xmlStr,'text/xml');
+    const items=[...doc.querySelectorAll('item, entry')].slice(0,50);
+    return items.map((item,i)=>{
+      const g=tag=>item.querySelector(tag)?.textContent?.trim()||'';
+      const a=(tag,attr)=>item.querySelector(tag)?.getAttribute(attr)||'';
+      const title=g('title')||'Sans titre';
+      const link=g('link')||a('link','href')||'#';
+      const pub=g('pubDate')||g('published')||g('updated')||'';
+      const desc=g('description')||g('summary')||g('content')||'';
+      let img=a('enclosure','url')||a('media\\:content','url')||a('media:content','url')||'';
+      if(!img){const m=desc.match(/src=["']([^"']+\.(jpg|jpeg|png|webp)[^"']*)/i);if(m)img=m[1];}
+      if(!img)img=svgImg(a.cat||'auto');
+      return{id:'rss_'+feedId+'_'+i,title,source:feedTitle,url:link,time:timeAgo(pub),pubDate:pub,year:pub?new Date(pub).getFullYear():2024,description:desc,cat:guessCat(title+' '+desc),img,read:'5 min',isRss:true,folderId:null};
+    });
+  }catch(e){return[];}
+}
+
+async function fetchFeed(feed){
+  const encoded=encodeURIComponent(feed.url);
+
+  // Proxy 1 : rss2json — le seul qui a fonctionné, en premier
+  try{
+    const r=await fetchWithTimeout(`https://api.rss2json.com/v1/api.json?rss_url=${encoded}`,8000);
+    if(r.ok){
+      const d=await r.json();
+      if(d.status==='ok'&&d.items?.length){
+        return d.items.slice(0,50).map((item,i)=>({
+          id:'rss_'+feed.id+'_'+i,
+          title:item.title||'Sans titre',
+          source:feed.title,
+          url:item.link||feed.url,
+          time:timeAgo(item.pubDate),
+          pubDate:item.pubDate||'',
+          year:new Date(item.pubDate).getFullYear()||2024,
+          description:item.description||item.content||'',
+          cat:guessCat((item.title||'')+(item.description||'')),
+          img:(()=>{
+            let img=item.thumbnail||item.enclosure?.link||'';
+            // Cherche dans le contenu HTML de l'article
+            if(!img||img.length<10){
+              const desc=item.description||item.content||'';
+              const m=desc.match(/src=["']([^"']+\.(jpg|jpeg|png|webp)[^"']*)/i);
+              if(m)img=m[1];
+            }
+            // Fallback placehold avec couleur par source
+            if(!img||img.length<10) img=svgImg(guessCat(item.title)||'auto');
+            return img;
+          })(),
+          read:'5 min',isRss:true,folderId:null,
+        }));
+      }
+    }
+  }catch(e){console.warn('[rss2json]',feed.title,e.message);}
+
+  // Proxy 2 : allorigins + parser XML natif
+  try{
+    const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encoded}`,8000);
+    if(r.ok){const d=await r.json();if(d.contents){const a=parseXML(d.contents,feed.title,feed.id);if(a.length)return a;}}
+  }catch(e){console.warn('[allorigins]',feed.title,e.message);}
+
+  // Proxy 3 : corsproxy.io
+  try{
+    const r=await fetchWithTimeout(`https://corsproxy.io/?${encoded}`,8000);
+    if(r.ok){const txt=await r.text();const a=parseXML(txt,feed.title,feed.id);if(a.length)return a;}
+  }catch(e){console.warn('[corsproxy]',feed.title,e.message);}
+
+  // Proxy 4 : scraping HTML direct du site (si tous les RSS ont échoué)
+  const siteUrl=feed.url.replace(/\/(feed|rss|atom)(\/.*)?(\?.*)?$/,'').replace(/\/feed\/?$/,'');
+  try{
+    const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encodeURIComponent(siteUrl)}`,10000);
+    if(r.ok){
+      const d=await r.json();
+      if(d.contents){
+        const scraped=scrapeHTML(d.contents,feed.title,feed.id,siteUrl);
+        if(scraped.length){console.log('[scrape] OK',feed.title,scraped.length,'articles');return scraped;}
+      }
+    }
+  }catch(e){console.warn('[scrape]',feed.title,e.message);}
+
+  return[];
+}
+
+// Scraping HTML — extrait articles depuis la page d'accueil du site
+function scrapeHTML(html, feedTitle, feedId, baseUrl){
+  try{
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const base=new URL(baseUrl);
+    const articles=[];
+    const seen=new Set();
+
+    // Sélecteurs courants pour les articles de blog/news
+    const selectors=[
+      'article','[class*="post"],[class*="article"],[class*="entry"],[class*="news-item"]',
+      '.card','.item','[class*="card"]'
+    ];
+
+    let nodes=[];
+    for(const sel of selectors){
+      nodes=[...doc.querySelectorAll(sel)];
+      if(nodes.length>=3)break;
+    }
+
+    // Fallback : chercher des liens avec titres h2/h3
+    if(nodes.length<3){
+      nodes=[...doc.querySelectorAll('h2 a, h3 a, h4 a')]
+        .map(a=>a.closest('li,div,section')||a.parentElement)
+        .filter(Boolean);
+    }
+
+    nodes.slice(0,50).forEach((node,i)=>{
+      // Titre
+      const titleEl=node.querySelector('h1,h2,h3,h4,[class*="title"],[class*="heading"]');
+      const title=(titleEl?.textContent||'').trim();
+      if(!title||title.length<10)return;
+      if(seen.has(title))return;
+      seen.add(title);
+
+      // Lien
+      const linkEl=node.querySelector('a[href]');
+      let url=linkEl?.getAttribute('href')||'';
+      if(!url)return;
+      if(url.startsWith('/'))url=base.origin+url;
+      else if(!url.startsWith('http'))url=base.origin+'/'+url;
+      if(seen.has(url))return;
+      seen.add(url);
+
+      // Image — cherche og:image, puis première img > 100px
+      let img='';
+      const imgEl=node.querySelector('img[src]');
+      const metaOgUrl=doc.querySelector('meta[property="og:image"]')?.getAttribute('content')||'';
+      if(imgEl?.src&&imgEl.src.startsWith('http'))img=imgEl.src;
+      else if(imgEl?.getAttribute('src')){
+        const src=imgEl.getAttribute('src');
+        img=src.startsWith('/')?base.origin+src:src;
+      }
+      if(!img&&metaOgUrl)img=metaOgUrl;
+      if(!img)img=svgImg(guessCat(title));
+
+      // Description
+      const descEl=node.querySelector('p,[class*="excerpt"],[class*="summary"],[class*="desc"]');
+      const description=(descEl?.textContent||'').trim().slice(0,200);
+
+      // Date
+      const dateEl=node.querySelector('time,[class*="date"],[class*="time"]');
+      const pubDate=dateEl?.getAttribute('datetime')||dateEl?.textContent||'';
+
+      articles.push({
+        id:'scr_'+feedId+'_'+i,
+        title,source:feedTitle,url,
+        time:timeAgo(pubDate)||'',
+        pubDate,
+        year:pubDate?new Date(pubDate).getFullYear():new Date().getFullYear(),
+        description,
+        cat:guessCat(title+' '+description),
+        img,
+        read:'5 min',isRss:true,folderId:null,
+      });
+    });
+
+    return articles;
+  }catch(e){console.warn('scrapeHTML error:',e.message);return[];}
+}
+async function refreshAllFeeds(force=false){
+  const now=Date.now();
+  const feeds=S.folders.flatMap(f=>(f.feeds||[]).map(fd=>({...fd,folderId:f.id})));
+  if(!feeds.length)return;
+  S.rssLoading=true;S.rssError=null;S.feedStatus={};render();
+  const results=[];
+  for(let i=0;i<feeds.length;i+=3){
+    const batch=feeds.slice(i,i+3);
+    const batchResults=await Promise.allSettled(batch.map(f=>fetchFeed(f)));
+    batchResults.forEach((r,j)=>{
+      const feed=batch[j];
+      if(r.status==='fulfilled'&&r.value.length){
+        const tagged=r.value.map(a=>({...a,source:feed.title,_feedId:feed.id,_folderId:feed.folderId}));
+        results.push(...tagged);
+        S.rssArticles=[...results];
+        S.feedStatus[feed.id]={ok:true,count:r.value.length,title:feed.title};
+      }else{
+        S.feedStatus[feed.id]={ok:false,count:0,title:feed.title,error:r.reason?.message||'Échec'};
+        console.warn('Feed failed:',feed.title,r.reason?.message);
+      }
+      render();
+    });
+  }
+  if(results.length>0){
+    S.rssArticles=results;S.rssLastFetch=now;saveState();
+    const ok=Object.values(S.feedStatus).filter(s=>s.ok).length;
+    const total=Object.values(S.feedStatus).length;
+    toast(`✓ ${results.length} articles — ${ok}/${total} flux OK`);
+  }else{
+    S.rssError='Aucun flux chargé. Vérifiez votre connexion.';
+  }
+  S.rssLoading=false;render();
+}
+
+// FALLBACK ARTICLES
+const SVG_IMGS={
+  auto:'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMjAwIj4KICA8cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzExMTgyNyIvPgogIDx0ZXh0IHg9IjIwMCIgeT0iOTUiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNiIgZm9udC13ZWlnaHQ9IjYwMCIgZmlsbD0iI2VhNTgwYyIgdGV4dC1hbmNob3I9Im1pZGRsZSI+RGVzaWduIEF1dG88L3RleHQ+CiAgPHRleHQgeD0iMjAwIiB5PSIxMjAiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMiIgZmlsbD0iI2VhNTgwYyIgb3BhY2l0eT0iMC42IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5EZXNpZ24gRGFpbHk8L3RleHQ+Cjwvc3ZnPg==',
+  ai:'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMjAwIj4KICA8cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzFlMWI0YiIvPgogIDx0ZXh0IHg9IjIwMCIgeT0iOTUiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNiIgZm9udC13ZWlnaHQ9IjYwMCIgZmlsbD0iIzgxOGNmOCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+SUEgJiBEZXNpZ248L3RleHQ+CiAgPHRleHQgeD0iMjAwIiB5PSIxMjAiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMiIgZmlsbD0iIzgxOGNmOCIgb3BhY2l0eT0iMC42IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5EZXNpZ24gRGFpbHk8L3RleHQ+Cjwvc3ZnPg==',
+  ui:'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMjAwIj4KICA8cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzFlM2E1ZiIvPgogIDx0ZXh0IHg9IjIwMCIgeT0iOTUiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNiIgZm9udC13ZWlnaHQ9IjYwMCIgZmlsbD0iIzYwYTVmYSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+VUkgRGVzaWduPC90ZXh0PgogIDx0ZXh0IHg9IjIwMCIgeT0iMTIwIiBmb250LWZhbWlseT0ic3lzdGVtLXVpLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM2MGE1ZmEiIG9wYWNpdHk9IjAuNiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+RGVzaWduIERhaWx5PC90ZXh0Pgo8L3N2Zz4=',
+  ux:'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMjAwIj4KICA8cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzJkMWI2OSIvPgogIDx0ZXh0IHg9IjIwMCIgeT0iOTUiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNiIgZm9udC13ZWlnaHQ9IjYwMCIgZmlsbD0iI2E3OGJmYSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+VVggUmVzZWFyY2g8L3RleHQ+CiAgPHRleHQgeD0iMjAwIiB5PSIxMjAiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMiIgZmlsbD0iI2E3OGJmYSIgb3BhY2l0eT0iMC42IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5EZXNpZ24gRGFpbHk8L3RleHQ+Cjwvc3ZnPg==',
+  motion:'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMjAwIj4KICA8cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzA2NGUzYiIvPgogIDx0ZXh0IHg9IjIwMCIgeT0iOTUiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNiIgZm9udC13ZWlnaHQ9IjYwMCIgZmlsbD0iIzM0ZDM5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+TW90aW9uPC90ZXh0PgogIDx0ZXh0IHg9IjIwMCIgeT0iMTIwIiBmb250LWZhbWlseT0ic3lzdGVtLXVpLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiMzNGQzOTkiIG9wYWNpdHk9IjAuNiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+RGVzaWduIERhaWx5PC90ZXh0Pgo8L3N2Zz4=',
+  typo:'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMjAwIj4KICA8cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzQ1MWEwMyIvPgogIDx0ZXh0IHg9IjIwMCIgeT0iOTUiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNiIgZm9udC13ZWlnaHQ9IjYwMCIgZmlsbD0iI2ZiYmYyNCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+VHlwb2dyYXBoaWU8L3RleHQ+CiAgPHRleHQgeD0iMjAwIiB5PSIxMjAiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMiIgZmlsbD0iI2ZiYmYyNCIgb3BhY2l0eT0iMC42IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5EZXNpZ24gRGFpbHk8L3RleHQ+Cjwvc3ZnPg==',
+  brand:'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMjAwIj4KICA8cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzQ1MGEwYSIvPgogIDx0ZXh0IHg9IjIwMCIgeT0iOTUiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNiIgZm9udC13ZWlnaHQ9IjYwMCIgZmlsbD0iI2Y4NzE3MSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+QnJhbmRpbmc8L3RleHQ+CiAgPHRleHQgeD0iMjAwIiB5PSIxMjAiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMiIgZmlsbD0iI2Y4NzE3MSIgb3BhY2l0eT0iMC42IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5EZXNpZ24gRGFpbHk8L3RleHQ+Cjwvc3ZnPg==',
+  tech:'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMjAwIj4KICA8cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzBjNGE2ZSIvPgogIDx0ZXh0IHg9IjIwMCIgeT0iOTUiIGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNiIgZm9udC13ZWlnaHQ9IjYwMCIgZmlsbD0iIzM4YmRmOCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+VGVjaCAmIEZ1dHVyPC90ZXh0PgogIDx0ZXh0IHg9IjIwMCIgeT0iMTIwIiBmb250LWZhbWlseT0ic3lzdGVtLXVpLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiMzOGJkZjgiIG9wYWNpdHk9IjAuNiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+RGVzaWduIERhaWx5PC90ZXh0Pgo8L3N2Zz4=',
+};
+function svgImg(cat){{return SVG_IMGS[cat]||SVG_IMGS.auto;}}
+
+// Articles curatés — vrais liens, sources réelles
+const FB=[
+  // ── Car Design News (10) ──
+  {id:'fb_cdn1',title:'Renault 5 E-Tech Electric wins Car Design Award 2024',source:'Car Design News',url:'https://www.cardesignnews.com/car-design-award/',time:'2j',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cdn2',title:'BMW Neue Klasse concept: the future of the brand',source:'Car Design News',url:'https://www.cardesignnews.com/news/bmw-neue-klasse/',time:'3j',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
+  {id:'fb_cdn3',title:'Hyundai IONIQ 6 wins World Car Design of the Year',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'4j',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cdn4',title:'Porsche Taycan — the evolution of an icon',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'5j',year:2024,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
+  {id:'fb_cdn5',title:'Audi design language: the progressive curves strategy',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'6j',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
+  {id:'fb_cdn6',title:'Toyota FJ Cruiser spiritual successor concept unveiled',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'7j',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cdn7',title:'Mercedes-Benz Vision EQXX: design lessons learned',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
+  {id:'fb_cdn8',title:'Rolls-Royce Spectre: electric grand touring redefined',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
+  {id:'fb_cdn9',title:'Genesis GV60 — Korean luxury design maturity',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cdn10',title:'Polestar 4: redefining the electric SUV silhouette',source:'Car Design News',url:'https://www.cardesignnews.com/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
+  // ── Car Body Design (8) ──
+  {id:'fb_cbd1',title:'Kia EV9 Design Process: From Sketch to Production',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'2j',year:2024,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
+  {id:'fb_cbd2',title:'Peugeot E-3008: Panoramic i-Cockpit design analysis',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'4j',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cbd3',title:'Volvo EX90: Scandinavian minimalism at its peak',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'5j',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
+  {id:'fb_cbd4',title:'Citroën C3 — the return of accessible design',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'6j',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cbd5',title:'Lamborghini Revuelto: drama in every line',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
+  {id:'fb_cbd6',title:'BYD Seal interior design breakdown',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
+  {id:'fb_cbd7',title:'Alpine A290: radical hatchback design study',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
+  {id:'fb_cbd8',title:'Honda e:Ny1 — compact EV proportions explained',source:'Car Body Design',url:'https://www.carbodydesign.com/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
+  // ── Lignes Auto (8) ──
+  {id:'fb_la1',title:'Ferrari Purosangue : retour aux lignes pures du cheval cabré',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'1j',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
+  {id:'fb_la2',title:'Renault Emblème : le concept qui réinvente la berline française',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'3j',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
+  {id:'fb_la3',title:'Citroën et le néo-rétro : retour vers le futur',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'5j',year:2024,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
+  {id:'fb_la4',title:'Analyse du design de la Mégane E-Tech Electric',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
+  {id:'fb_la5',title:'Simca 1100 : portrait d\'une berline avant-gardiste',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'1sem',year:2023,cat:'auto',img:svgImg('auto'),read:'9 min',_folderId:'f_auto'},
+  {id:'fb_la6',title:'La DS 19 : 60 ans après, toujours moderne',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'10 min',_folderId:'f_auto'},
+  {id:'fb_la7',title:'Mercedes-Benz 140 ans : l\'ADN du design allemand',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'2j',year:2026,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
+  {id:'fb_la8',title:'Peugeot 504 à 604 : l\'histoire de l\'élégance française',source:'Lignes Auto',url:'https://lignesauto.fr/',time:'4j',year:2026,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
+  // ── Form Trends (6) ──
+  {id:'fb_ft1',title:'Japanese Automotive Design Trends 2025',source:'Form Trends',url:'https://www.formtrends.com/',time:'2j',year:2025,cat:'auto',img:svgImg('auto'),read:'9 min',_folderId:'f_auto'},
+  {id:'fb_ft2',title:'Interior Design: How AI is reshaping the cabin',source:'Form Trends',url:'https://www.formtrends.com/',time:'4j',year:2025,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
+  {id:'fb_ft3',title:'Biophilic design enters the automotive interior',source:'Form Trends',url:'https://www.formtrends.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
+  {id:'fb_ft4',title:'HMI trends: the shift to ambient interaction',source:'Form Trends',url:'https://www.formtrends.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
+  {id:'fb_ft5',title:'Color & material trends in mobility 2024',source:'Form Trends',url:'https://www.formtrends.com/',time:'2sem',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
+  {id:'fb_ft6',title:'Chinese EV design language: a global influence',source:'Form Trends',url:'https://www.formtrends.com/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'10 min',_folderId:'f_auto'},
+  // ── Carstyling.ru (4) ──
+  {id:'fb_cs1',title:'Soviet automotive design heritage: Zil & Volga',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'3j',year:2024,cat:'auto',img:svgImg('auto'),read:'10 min',_folderId:'f_auto'},
+  {id:'fb_cs2',title:'Moskvitch concept revival: from USSR to EV',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
+  {id:'fb_cs3',title:'Italian concept cars of the 1970s: a retrospective',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'12 min',_folderId:'f_auto'},
+  {id:'fb_cs4',title:'Pininfarina archive: 50 years of timeless design',source:'Carstyling.ru',url:'https://carstyling.ru/en/',time:'2sem',year:2023,cat:'auto',img:svgImg('auto'),read:'9 min',_folderId:'f_auto'},
+  // ── Automotive Design Planet (4) ──
+  {id:'fb_adp1',title:'Stellantis design directors on the future of EVs',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'1j',year:2025,cat:'auto',img:svgImg('auto'),read:'6 min',_folderId:'f_auto'},
+  {id:'fb_adp2',title:'Interview: Hyundai chief designer on emotional design',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'3j',year:2025,cat:'auto',img:svgImg('auto'),read:'7 min',_folderId:'f_auto'},
+  {id:'fb_adp3',title:'Exterior lighting as brand identity: 2025 trends',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'1sem',year:2024,cat:'auto',img:svgImg('auto'),read:'5 min',_folderId:'f_auto'},
+  {id:'fb_adp4',title:'AI-generated concept cars: hype or future?',source:'Automotive Design Planet',url:'https://automotivedesignplanet.com/',time:'2sem',year:2024,cat:'auto',img:svgImg('auto'),read:'8 min',_folderId:'f_auto'},
+  // ── Veille Générale ──
+  // ── Intelligence Artificielle (10) ──
+  {id:'fb_ia1',title:'GPT-4o : analyse des capacités multimodales',source:'MIT Technology Review AI',url:'https://www.technologyreview.com/topic/artificial-intelligence/',time:'1j',year:2025,cat:'ai',img:svgImg('ai'),read:'7 min',_folderId:'f_ia'},
+  {id:'fb_ia2',title:'Diffusion models vs GANs: where we stand in 2025',source:'The Gradient',url:'https://thegradient.pub/',time:'2j',year:2025,cat:'ai',img:svgImg('ai'),read:'9 min',_folderId:'f_ia'},
+  {id:'fb_ia3',title:'Mixtral et les LLM open-source : état de l\'art',source:'Hugging Face Blog',url:'https://huggingface.co/blog',time:'3j',year:2025,cat:'ai',img:svgImg('ai'),read:'8 min',_folderId:'f_ia'},
+  {id:'fb_ia4',title:'AI safety: why alignment matters more than ever',source:'AI Alignment Forum',url:'https://www.alignmentforum.org/',time:'4j',year:2025,cat:'ai',img:svgImg('ai'),read:'12 min',_folderId:'f_ia'},
+  {id:'fb_ia5',title:'Prompt engineering for designers: a practical guide',source:'Towards Data Science',url:'https://towardsdatascience.com/',time:'5j',year:2025,cat:'ai',img:svgImg('ai'),read:'6 min',_folderId:'f_ia'},
+  {id:'fb_ia6',title:'Sora and the future of AI-generated video',source:'MIT Technology Review AI',url:'https://www.technologyreview.com/topic/artificial-intelligence/',time:'1sem',year:2025,cat:'ai',img:svgImg('ai'),read:'8 min',_folderId:'f_ia'},
+  {id:'fb_ia7',title:'Fine-tuning LLMs on custom datasets: best practices',source:'Hugging Face Blog',url:'https://huggingface.co/blog',time:'1sem',year:2024,cat:'ai',img:svgImg('ai'),read:'10 min',_folderId:'f_ia'},
+  {id:'fb_ia8',title:'IA générative et droit d\'auteur : le débat s\'intensifie',source:'The Gradient',url:'https://thegradient.pub/',time:'2sem',year:2024,cat:'ai',img:svgImg('ai'),read:'7 min',_folderId:'f_ia'},
+  {id:'fb_ia9',title:'Reinforcement learning from human feedback (RLHF) explained',source:'Import AI',url:'https://jack-clark.net/',time:'2sem',year:2024,cat:'ai',img:svgImg('ai'),read:'9 min',_folderId:'f_ia'},
+  {id:'fb_ia10',title:'Claude vs GPT-4 vs Gemini : comparatif 2025',source:'Towards Data Science',url:'https://towardsdatascience.com/',time:'3j',year:2025,cat:'ai',img:svgImg('ai'),read:'11 min',_folderId:'f_ia'},
+  {id:'fb_sm1',title:"L'IA générative dans le workflow des designers",source:'Smashing Magazine',url:'https://www.smashingmagazine.com',time:'2h',year:2024,cat:'ai',img:svgImg('ai'),read:'5 min',_folderId:'f1'},
+  {id:'fb_sm2',title:'Design systems at scale: lessons from the field',source:'Smashing Magazine',url:'https://www.smashingmagazine.com',time:'1j',year:2024,cat:'ui',img:svgImg('ui'),read:'8 min',_folderId:'f1'},
+  {id:'fb_sm3',title:'CSS container queries: a practical guide',source:'Smashing Magazine',url:'https://www.smashingmagazine.com',time:'2j',year:2024,cat:'tech',img:svgImg('tech'),read:'6 min',_folderId:'f1'},
+  {id:'fb_ux1',title:'Guide complet des micro-interactions UI',source:'UX Collective',url:'https://uxdesign.cc',time:'4h',year:2024,cat:'ux',img:svgImg('ux'),read:'4 min',_folderId:'f1'},
+  {id:'fb_ux2',title:'The psychology of empty states in product design',source:'UX Collective',url:'https://uxdesign.cc',time:'1j',year:2024,cat:'ux',img:svgImg('ux'),read:'5 min',_folderId:'f1'},
+  {id:'fb_ux3',title:'Accessibility in 2024: beyond WCAG compliance',source:'UX Collective',url:'https://uxdesign.cc',time:'3j',year:2024,cat:'ux',img:svgImg('ux'),read:'7 min',_folderId:'f1'},
+];
+
+
+// HELPERS
+function h(tag,attrs,...ch){
+  const el=document.createElement(tag);
+  if(attrs)Object.entries(attrs).forEach(([k,v])=>{
+    if(k==='onclick')el.onclick=v;
+    else if(k==='oninput')el.oninput=v;
+    else if(k==='onchange')el.onchange=v;
+    else if(k==='onkeydown')el.onkeydown=v;
+    else if(k==='style'&&typeof v==='object')Object.assign(el.style,v);
+    else if(k==='class')el.className=v;
+    else if(k==='autofocus'){if(v)setTimeout(()=>el.focus(),50);}
+    else el.setAttribute(k,v);
+  });
+  ch.flat(Infinity).forEach(c=>{if(c==null)return;el.appendChild(typeof c==='string'?document.createTextNode(c):c);});
+  return el;
+}
+function svg(p,s=20){const el=document.createElementNS('http://www.w3.org/2000/svg','svg');el.setAttribute('width',s);el.setAttribute('height',s);el.setAttribute('viewBox','0 0 24 24');el.setAttribute('fill','none');el.setAttribute('stroke','currentColor');el.setAttribute('stroke-width','2');el.setAttribute('stroke-linecap','round');el.setAttribute('stroke-linejoin','round');el.innerHTML=p;return el;}
+const I={
+  layout:'<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+  bookmark:'<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  search:'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  check:'<polyline points="20 6 9 17 4 12"/>',
+  arrowLeft:'<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
+  externalLink:'<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+  zap:'<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  globe:'<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+  folder:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  trash:'<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+  chevDown:'<polyline points="6 9 12 15 18 9"/>',chevUp:'<polyline points="18 15 12 9 6 15"/>',
+  hash:'<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>',
+  x:'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  tag:'<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+  calendar:'<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  list:'<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  sparkles:'<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>',
+  msg:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  moon:'<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  sun:'<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>',
+  palette:'<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>',
+  refreshCw:'<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+  wifioff:'<line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
+  pencil:'<line x1="18" y1="2" x2="22" y2="6"/><path d="M7.5 20.5 19 9l-4-4L3.5 16.5 2 22z"/>',
+  eye:'<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  edit3:'<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+};
+function ic(n,s=20){return svg(I[n]||'',s);}
+function toast(msg){S.toast=msg;render();setTimeout(()=>{S.toast=null;render();},2500);}
+function getCat(id){return S.categories.find(c=>c.id===id)||{name:id,bg:'#f3f4f6',fg:'#6b7280'};}
+function isSaved(id){return S.saved.some(a=>a.id===id);}
+function isOffline(id){return(S.offline||[]).includes(id);}
+// Convertit time/pubDate en timestamp pour tri universel
+function timeToTs(a){
+  if(a.pubDate){const d=new Date(a.pubDate);if(!isNaN(d))return d.getTime();}
+  if(a.time){
+    const t=a.time;const n=parseInt(t)||0;const now=Date.now();
+    if(t.includes('min'))return now-n*60*1000;
+    if(t.includes('h'))return now-n*3600*1000;
+    if(t.includes('j'))return now-n*86400*1000;
+    if(t.includes('sem'))return now-n*7*86400*1000;
+  }
+  return 0;
+}
+function getAllArticles(){
+  const all=S.rssArticles&&S.rssArticles.length>0
+    ?(()=>{
+        const rssIds=new Set(S.rssArticles.map(a=>a.source+'_'+a.title.slice(0,30)));
+        const uniqueFB=FB.filter(a=>!rssIds.has(a.source+'_'+a.title.slice(0,30)));
+        return [...S.rssArticles,...uniqueFB];
+      })()
+    :FB;
+  return all.sort((a,b)=>timeToTs(b)-timeToTs(a));
+}
+function getDisplayed(){
+  const all=getAllArticles();
+  const theme=S.themes.find(t=>t.id===S.filter);
+  const folder=S.folders.find(f=>f.id===S.filter);
+  return all.filter(a=>{
+    if(theme){const s=(a.title+' '+a.cat).toLowerCase();return theme.keywords.some(k=>s.includes(k.toLowerCase()));}
+    if(folder){
+      return a._folderId===folder.id||
+        (folder.feeds||[]).some(f=>{
+          const src=(a.source||'').toLowerCase();
+          const ftitle=f.title.toLowerCase();
+          if(src.includes(ftitle)||ftitle.includes(src))return true;
+          try{
+            const fdomain=new URL(f.url).hostname.replace('www.','');
+            if(src.includes(fdomain))return true;
+            if(a.url){const adomain=new URL(a.url).hostname.replace('www.','');if(adomain===fdomain)return true;}
+          }catch(e){}
+          return false;
+        });
+    }
+    if(S.filter==='all')return S.interests.includes(a.cat);
+    return a.cat===S.filter;
+  }).slice(0,S.maxArticles);
+}
+function toggleSave(a,e){if(e)e.stopPropagation();if(isSaved(a.id))S.saved=S.saved.filter(s=>s.id!==a.id);else S.saved.push({...a,savedAt:Date.now()});saveState();render();}
+function toggleOffline(a,e){if(e)e.stopPropagation();if(!isSaved(a.id))S.saved.push({...a,savedAt:Date.now()});if(isOffline(a.id))S.offline=S.offline.filter(id=>id!==a.id);else{if(!S.offline)S.offline=[];S.offline.push(a.id);}saveState();toast(isOffline(a.id)?'Retiré hors ligne':'Disponible hors ligne ✓');}
+async function doSearch(){if(!S.searchQ.trim())return;S.searching=true;S.aiResp=null;render();await new Promise(r=>setTimeout(r,1200));S.aiResp='Résultat pour : "'+S.searchQ+'"\n\nPour l\'IA réelle, configurez votre clé Gemini.\n\n• Tendances : minimalisme fonctionnel\n• Accessibilité : critère primordial en 2024\n• IA générative : nouveau workflow pour designers';S.searching=false;render();}
+
+// STYLES
+const CSS=`
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#e5e7eb;display:flex;justify-content:center;min-height:100vh}
+#app{width:100%;max-width:430px;height:100vh;display:flex;flex-direction:column;overflow:hidden;position:relative;box-shadow:0 25px 50px rgba(0,0,0,.3)}
+.scr{flex:1;overflow-y:auto;padding-bottom:72px}.scr::-webkit-scrollbar{display:none}
+header{padding:36px 16px 8px;border-bottom:1px solid #f0f0f0;position:sticky;top:0;z-index:10;background:#fff}
+.htop{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.logo{display:flex;align-items:center;gap:8px}
+.lbox{width:30px;height:30px;border-radius:8px;background:#000;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-style:italic;font-size:16px}
+.ltxt{font-weight:700;font-size:18px}
+.hact{display:flex;gap:6px}
+.ibtn{padding:8px;border-radius:50%;border:none;background:#f3f4f6;cursor:pointer;color:#6b7280;display:flex;align-items:center;justify-content:center;position:relative}
+.filters{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none}
+.filters::-webkit-scrollbar{display:none}
+.fb{flex-shrink:0;padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid #e5e7eb;background:#fff;color:#6b7280;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.fb.act{background:#000;color:#fff;border-color:#000}
+nav{position:absolute;bottom:0;left:0;right:0;height:68px;background:#fff;border-top:1px solid #e5e7eb;display:flex;z-index:10}
+.nb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:none;background:none;cursor:pointer;color:#9ca3af;font-size:10px;font-weight:700}
+.card{border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;background:#fff;cursor:pointer;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.card:active{transform:scale(.98)}
+.cimg{height:148px;width:100%;object-fit:cover;display:block}
+.cimgw{position:relative;height:148px;overflow:hidden;background:#f3f4f6}
+.cbody{padding:12px 14px}
+.ctitle{font-weight:700;font-size:14px;line-height:1.4;margin-bottom:10px;color:#111;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.cmeta{display:flex;justify-content:space-between;align-items:center}
+.cbadge{position:absolute;top:10px;left:10px;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;text-transform:uppercase}
+.rss-badge{font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:#ef4444;color:#fff;text-transform:uppercase;position:absolute;top:10px;right:10px}
+.bmbtn{border:none;background:none;cursor:pointer;padding:4px;color:#9ca3af}
+.sc{display:flex;padding:12px;border-radius:12px;border:1px solid #e5e7eb;background:#fff;margin-bottom:12px;cursor:pointer}
+.sthumb{width:64px;height:64px;border-radius:10px;object-fit:cover;flex-shrink:0;background:#f3f4f6}
+.fc{border-radius:12px;border:1px solid #e5e7eb;background:#fff;margin-bottom:12px;overflow:hidden}
+.fh{padding:14px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer}
+.fb2{padding:8px;display:flex;flex-direction:column;gap:6px;background:#f9fafb;border-top:1px solid #e5e7eb}
+.mc{display:flex;padding:8px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;margin-left:8px;cursor:pointer;align-items:center;gap:10px}
+.mthumb{width:42px;height:42px;border-radius:6px;object-fit:cover;flex-shrink:0;background:#f3f4f6}
+.sl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#9ca3af;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.scard{border-radius:12px;border:1px solid #e5e7eb;background:#fff;padding:16px}
+.srow{display:flex;justify-content:space-between;align-items:center;padding:6px 0}
+.srow+.srow{border-top:1px solid #f0f0f0;margin-top:6px}
+input[type=color]{-webkit-appearance:none;border:none;width:36px;height:28px;border-radius:6px;cursor:pointer;padding:2px}
+input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+input[type=color]::-webkit-color-swatch{border:none;border-radius:4px}
+.tag{padding:6px 12px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;color:#6b7280;font-size:11px;font-weight:700;text-transform:uppercase;cursor:pointer;display:inline-flex;align-items:center;gap:6px;margin:3px}
+.inf{padding:10px 14px;border-radius:10px;border:1px solid #d1d5db;font-size:13px;outline:none;width:100%}
+.bprimary{padding:12px;border-radius:10px;border:none;color:#fff;font-weight:700;font-size:13px;cursor:pointer;width:100%}
+.bblk{padding:12px;border-radius:10px;border:none;background:#000;color:#fff;font-weight:700;cursor:pointer}
+.bgh{padding:12px;border-radius:10px;border:1px solid #d1d5db;background:none;font-size:13px;cursor:pointer}
+.ov{position:absolute;inset:0;z-index:50;background:#fff;display:flex;flex-direction:column}
+.tst{position:absolute;top:64px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.9);color:#fff;padding:10px 20px;border-radius:999px;font-size:12px;font-weight:500;box-shadow:0 8px 32px rgba(0,0,0,.3);z-index:60;white-space:nowrap}
+.dimg{width:100%;height:220px;object-fit:cover;display:block;background:#e5e7eb}
+.dhead{position:relative}
+.dback{position:absolute;top:16px;left:16px;background:rgba(0,0,0,.4);border:none;border-radius:50%;padding:8px;color:#fff;cursor:pointer;display:flex}
+.dov{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(to top,rgba(0,0,0,.8),transparent);padding:48px 20px 16px}
+.dbody{flex:1;overflow-y:auto;padding:20px}
+.chip{font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;text-transform:uppercase;background:rgba(255,255,255,.2);color:#fff}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center;opacity:.5}
+.badge{display:inline-flex;background:#f3f4f6;color:#6b7280;font-size:11px;padding:2px 8px;border-radius:999px;margin-left:8px}
+.dsh{width:100%;padding:10px;border:2px dashed #d1d5db;border-radius:10px;background:none;cursor:pointer;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#9ca3af;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:16px}
+.ti{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-radius:12px;border:1px solid #e5e7eb;background:#fff;margin-bottom:8px}
+.kc{font-size:10px;padding:2px 6px;border-radius:4px;background:#f3f4f6;color:#6b7280;margin:2px;display:inline-block}
+.fi{border-radius:12px;border:1px solid #e5e7eb;background:#fff;margin-bottom:8px;overflow:hidden}
+.fihead{padding:14px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer}
+.hero{padding:20px;border-radius:16px;border:1px solid #fed7aa;background:#fff7ed;text-align:center;margin-bottom:24px}
+.vt{display:flex;background:#f3f4f6;border-radius:8px;padding:4px;gap:2px}
+.vtb{padding:6px 8px;border-radius:6px;border:none;background:transparent;cursor:pointer;color:#9ca3af;display:flex}
+.vtb.act{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1);color:#111}
+svg{display:inline-block;vertical-align:middle}
+.spin{animation:spin 1s linear infinite}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.ndot{width:7px;height:7px;border-radius:50%;background:#ef4444;position:absolute;top:6px;right:6px}
+.dark body{background:#111}
+.dark #app,.dark .ov{background:#030712}
+.dark header,.dark nav{background:#111827;border-color:#1f2937}
+.dark .card,.dark .sc,.dark .fc,.dark .scard,.dark .fi,.dark .ti{background:#111827;border-color:#1f2937}
+.dark .ctitle,.dark .dbody{color:#f3f4f6}
+.dark .fb2{background:#0f172a;border-color:#1f2937}
+.dark .mc{background:#111827;border-color:#1f2937}
+.dark .sl,.dark .badge{color:#4b5563}
+.dark .badge{background:#1f2937}
+.dark .srow{border-color:#1f2937}
+.dark .tag{background:#1f2937;border-color:#374151;color:#9ca3af}
+.dark .inf{background:#1f2937;border-color:#374151;color:#f3f4f6}
+.dark .kc{background:#1f2937;color:#6b7280}
+.dark .hero{background:rgba(234,88,12,.05);border-color:rgba(234,88,12,.3)}
+.dark .fb{background:#1f2937;border-color:#374151;color:#9ca3af}
+.dark .ibtn{background:#1f2937;color:#9ca3af}
+.dark .vt{background:#1f2937}
+.dark .vtb.act{background:#374151;color:#f3f4f6}
+.dark .dsh{border-color:#374151;color:#4b5563}
+`;
+const style=document.createElement('style');style.textContent=CSS;document.head.appendChild(style);
+
+// Fetch et extraction du contenu texte d'un article
+async function fetchExcerpt(article){
+  if(!article.url||article.url==='#')return'';
+  try{
+    const encoded=encodeURIComponent(article.url);
+    const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encoded}`,10000);
+    if(!r.ok)return'';
+    const d=await r.json();
+    if(!d.contents)return'';
+
+    const doc=new DOMParser().parseFromString(d.contents,'text/html');
+
+    // Supprimer les éléments inutiles
+    ['script','style','nav','header','footer','aside','[class*="sidebar"]',
+     '[class*="menu"]','[class*="comment"]','[class*="ad"]','[class*="social"]',
+     'figure','noscript'].forEach(sel=>{
+      doc.querySelectorAll(sel).forEach(el=>el.remove());
+    });
+
+    // Chercher le contenu principal dans l'ordre de priorité
+    const candidates=[
+      'article',
+      '[class*="article-body"],[class*="article-content"],[class*="post-content"]',
+      '[class*="entry-content"],[class*="content-body"],[class*="story-body"]',
+      'main','.content','.post','.entry',
+    ];
+
+    let best='';
+    for(const sel of candidates){
+      const el=doc.querySelector(sel);
+      if(el){
+        const txt=(el.textContent||'').replace(/\s+/g,' ').trim();
+        if(txt.length>best.length)best=txt;
+        if(best.length>200)break;
+      }
+    }
+
+    // Fallback : tous les <p> du body
+    if(best.length<100){
+      const paras=[...doc.querySelectorAll('p')]
+        .map(p=>(p.textContent||'').trim())
+        .filter(t=>t.length>40);
+      best=paras.slice(0,4).join(' ');
+    }
+
+    // Nettoyer et tronquer
+    const clean=best.replace(/\s+/g,' ').trim();
+    return clean.length>500?clean.slice(0,500)+'…':clean;
+  }catch(e){
+    console.warn('[fetchExcerpt]',article.url,e.message);
+    return'';
+  }
+}
+
+// RENDER
+function render(){
+  const app=document.getElementById('app');
+  document.documentElement.className=S.dark?'dark':'';
+  app.style.background=S.bgColor;
+  // Typographie et couleur texte
+  const fonts={
+    system:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    serif:"'Georgia','Times New Roman',serif",
+    mono:"'SF Mono','Fira Code','Courier New',monospace",
+    rounded:"'Nunito','Varela Round',system-ui,sans-serif",
+  };
+  app.style.fontFamily=fonts[S.fontFamily]||fonts.system;
+  app.style.color=S.textColor;
+  app.innerHTML='';
+  if(S.detail){app.appendChild(rDetail());app.appendChild(rNav());return;}
+  if(S.showSearch){app.appendChild(rSearch());return;}
+  app.appendChild(rHeader());
+  app.appendChild(rMain());
+  app.appendChild(rNav());
+  if(S.toast)app.appendChild(h('div',{class:'tst'},S.toast));
+}
+
+function rHeader(){
+  const hdr=h('header',{});
+  const top=h('div',{class:'htop'});
+  top.appendChild(h('div',{class:'logo'},[h('div',{class:'lbox',style:{background:S.logoColor}},'D'),h('div',{class:'ltxt'},['Design',h('span',{style:{color:S.themeColor}},'Daily')])]));
+  const act=h('div',{class:'hact'});
+  act.appendChild(h('button',{class:'ibtn',onclick:()=>{S.dark=!S.dark;S.bgColor=S.dark?'#030712':'#f9fafb';saveState();render();}},ic(S.dark?'sun':'moon',18)));
+  const rb=h('button',{class:'ibtn',onclick:()=>refreshAllFeeds(true)});
+  const ri=ic('refreshCw',18);if(S.rssLoading)ri.classList.add('spin');rb.appendChild(ri);
+  if(S.hasNewRss)rb.appendChild(h('div',{class:'ndot'}));
+  act.appendChild(rb);
+  act.appendChild(h('button',{class:'ibtn',onclick:()=>{S.showSearch=true;render();}},ic('search',18)));
+  top.appendChild(act);hdr.appendChild(top);
+  if(S.tab==='feed'){
+    const fl=h('div',{class:'filters'});
+    fl.appendChild(h('button',{class:'fb'+(S.filter==='all'?' act':''),onclick:()=>{S.filter='all';render();}},'Pour vous'));
+    S.folders.forEach(f=>{
+      const a=S.filter===f.id;
+      fl.appendChild(h('button',{class:'fb',style:a?{background:S.themeColor,color:'#fff',borderColor:S.themeColor}:{color:S.themeColor,borderColor:'rgba(234,88,12,.3)',background:S.dark?'#1f2937':'#fff7ed'},onclick:()=>{S.filter=f.id;render();}},[ic('folder',10),' '+f.name]));
+    });
+    if(S.themes.length){
+      fl.appendChild(h('div',{style:{width:'1px',height:'20px',background:S.dark?'#374151':'#d1d5db',flexShrink:0,alignSelf:'center'}}));
+      S.themes.forEach(t=>{
+        const a=S.filter===t.id;
+        fl.appendChild(h('button',{class:'fb',style:a?{background:S.themeColor,color:'#fff',borderColor:S.themeColor}:{color:S.themeColor,borderColor:'rgba(234,88,12,.3)',background:S.dark?'#1f2937':'#fff7ed'},onclick:()=>{S.filter=t.id;render();}},[ic('hash',10),' '+t.name]));
+      });
+    }
+    hdr.appendChild(fl);
+  }
+  return hdr;
+}
+
+function rNav(){
+  const nav=h('nav',{});
+  [['feed','Flux','layout'],['saved','Sauvegardés','bookmark'],['settings','Explorer','settings']].forEach(([tab,label,icon])=>{
+    const a=S.tab===tab;
+    const btn=h('button',{class:'nb',onclick:()=>{S.tab=tab;render();}});
+    const ico=ic(icon,22);if(a)ico.style.color=S.themeColor;
+    btn.appendChild(ico);btn.appendChild(document.createTextNode(label));nav.appendChild(btn);
+  });
+  return nav;
+}
+
+function rMain(){
+  const main=h('div',{class:'scr'});
+  if(S.tab==='feed')main.appendChild(rFeed());
+  if(S.tab==='saved')main.appendChild(rSaved());
+  if(S.tab==='settings')main.appendChild(rSettings());
+  return main;
+}
+
+function rFeed(){
+  const w=h('div',{style:{padding:'16px'}});
+  if(S.rssLoading){
+    w.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:10,padding:'12px',borderRadius:12,background:S.dark?'#1f2937':'#f0f9ff',marginBottom:16,border:'1px solid '+(S.dark?'#374151':'#bae6fd')}},[(()=>{const s=ic('refreshCw',16);s.style.color='#0ea5e9';s.classList.add('spin');return s;})(),' Chargement des flux RSS...']));
+  }
+  if(S.rssError){
+    w.appendChild(h('div',{style:{padding:'10px 14px',borderRadius:10,background:'#fef2f2',border:'1px solid #fecaca',marginBottom:16,fontSize:12,color:'#b91c1c'}},S.rssError));
+  }
+  if(S.rssArticles.length>0){
+    const t=S.rssLastFetch?new Date(S.rssLastFetch).toLocaleTimeString('fr',{hour:'2-digit',minute:'2-digit'}):'';
+    w.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,padding:'8px 12px',borderRadius:8,background:S.dark?'rgba(234,88,12,.1)':'#fff7ed',border:'1px solid rgba(234,88,12,.2)'}},[
+      h('span',{style:{fontSize:11,color:'#9a3412',fontWeight:600}},'🔴 RSS · '+t),
+      h('button',{style:{padding:'4px 10px',borderRadius:6,border:'none',background:S.themeColor,color:'#fff',fontSize:10,cursor:'pointer',display:'flex',alignItems:'center',gap:4},onclick:()=>refreshAllFeeds(true)},[ic('refreshCw',10),' Forcer'])
+    ]));
+  }
+  const arts=getDisplayed();
+  if(!arts.length){
+    w.appendChild(h('div',{class:'empty'},[ic('bookmark',44),h('p',{style:{marginTop:12,fontSize:13}},'Ajoutez des flux RSS dans Explorer')]));
+    return w;
+  }
+  arts.forEach(a=>{
+    const cat=getCat(a.cat);
+    const card=h('div',{class:'card',onclick:()=>{S.detail=a;render();}});
+    const iw=h('div',{class:'cimgw'});
+    const cardImg=h('img',{class:'cimg',alt:''});
+    cardImg.src=a.img||svgImg(a.cat||'auto');
+    cardImg.onerror=function(){this.onerror=null;this.src=svgImg(a.cat||'auto');};
+    iw.appendChild(cardImg);
+    iw.appendChild(h('span',{class:'cbadge',style:{background:cat.bg,color:cat.fg}},cat.name));
+    if(a.isRss)iw.appendChild(h('span',{class:'rss-badge'},'RSS'));
+    if(isOffline(a.id))iw.appendChild(h('div',{style:{position:'absolute',top:10,right:a.isRss?50:10,background:'#22c55e',color:'#fff',padding:'4px',borderRadius:'50%'}},ic('check',9)));
+    const cb=h('div',{class:'cbody'});
+    const meta=h('div',{class:'cmeta'});
+    meta.appendChild(h('div',{style:{display:'flex',gap:6,alignItems:'center'}},[h('span',{style:{fontSize:11,fontWeight:600,color:S.themeColor}},a.source),h('span',{style:{fontSize:11,color:'#9ca3af'}},'· '+a.time)]));
+    const bm=h('button',{class:'bmbtn',onclick:(e)=>toggleSave(a,e)});
+    const bi=ic('bookmark',18);bi.style.fill=isSaved(a.id)?S.themeColor:'none';bi.style.color=isSaved(a.id)?S.themeColor:'currentColor';bm.appendChild(bi);
+    meta.appendChild(bm);
+    cb.appendChild(h('h2',{class:'ctitle'},a.title));cb.appendChild(meta);
+    card.appendChild(iw);card.appendChild(cb);w.appendChild(card);
+  });
+  return w;
+}
+
+function rSaved(){
+  const w=h('div',{style:{padding:'16px'}});
+  const hdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}});
+  hdr.appendChild(h('h2',{style:{fontWeight:700,fontSize:20,color:S.dark?'#f3f4f6':'#111'}},'Ma Collection'));
+  const vt=h('div',{class:'vt'});
+  [['list','list'],['year','calendar'],['theme','folder']].forEach(([v,icon])=>{
+    vt.appendChild(h('button',{class:'vtb'+(S.savedView===v?' act':''),onclick:()=>{S.savedView=v;saveState();render();}},ic(icon,15)));
+  });
+  hdr.appendChild(vt);w.appendChild(hdr);
+  if(!S.creatingColFolder){
+    w.appendChild(h('button',{class:'dsh',onclick:()=>{S.creatingColFolder=true;render();}},[ic('plus',13),'Créer un dossier']));
+  } else {
+    const row=h('div',{style:{display:'flex',gap:8,marginBottom:16}});
+    row.appendChild(h('input',{class:'inf',type:'text',placeholder:'Nom du dossier...',autofocus:true,oninput:(e)=>S.newColFolderName=e.target.value,style:{flex:1}}));
+    row.appendChild(h('button',{class:'bblk',style:{padding:'10px 14px',borderRadius:10},onclick:()=>{if(!S.newColFolderName.trim())return;S.colFolders.push({id:'cf_'+Date.now(),name:S.newColFolderName});S.newColFolderName='';S.creatingColFolder=false;saveState();toast('Dossier créé ✓');render();}},[ic('check',15)]));
+    row.appendChild(h('button',{class:'bgh',style:{padding:'10px 14px',borderRadius:10},onclick:()=>{S.creatingColFolder=false;render();}},[ic('x',15)]));
+    w.appendChild(row);
+  }
+  if(!S.saved.length){w.appendChild(h('div',{class:'empty'},[ic('bookmark',44),h('p',{style:{marginTop:12,fontSize:13}},'Sauvegardez des articles avec 🔖')]));return w;}
+  if(S.savedView==='list'){
+    S.saved.forEach(a=>{
+      const card=h('div',{class:'sc',onclick:()=>{S.detail=a;render();}});
+      const sImg=h('img',{src:a.img||svgImg('auto'),class:'sthumb',alt:''});
+      sImg.onerror=function(){this.onerror=null;this.src=svgImg('auto');};
+      card.appendChild(sImg);
+      const info=h('div',{style:{marginLeft:12,flex:1,display:'flex',flexDirection:'column',justifyContent:'space-between'}});
+      info.appendChild(h('div',{style:{fontWeight:700,fontSize:12,color:S.dark?'#f3f4f6':'#111',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}},a.title));
+      const bot=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8}});
+      const fn=(S.colFolders.find(f=>f.id===a.folderId)||{}).name||'Classer';
+      bot.appendChild(h('button',{style:{display:'flex',alignItems:'center',gap:4,fontSize:10,padding:'3px 8px',borderRadius:999,border:'1px solid '+(a.folderId?'#a5b4fc':'transparent'),background:a.folderId?'#eef2ff':'transparent',color:a.folderId?'#6366f1':'#9ca3af',cursor:'pointer'},onclick:(e)=>{e.stopPropagation();S.moveArticle=S.moveArticle===a.id?null:a.id;render();}},[ic('folder',10),' '+fn]));
+      if(S.moveArticle===a.id){
+        const dd=h('div',{style:{position:'fixed',zIndex:100,width:180,borderRadius:12,boxShadow:'0 8px 24px rgba(0,0,0,.2)',border:'1px solid #e5e7eb',background:S.dark?'#111827':'#fff',overflow:'hidden'}});
+        dd.appendChild(h('button',{style:{width:'100%',textAlign:'left',padding:'8px 14px',fontSize:12,border:'none',background:'none',cursor:'pointer'},onclick:(e)=>{e.stopPropagation();S.saved=S.saved.map(s=>s.id===a.id?{...s,folderId:null}:s);S.moveArticle=null;saveState();render();}},'Non classé'));
+        S.colFolders.forEach(f=>dd.appendChild(h('button',{style:{width:'100%',textAlign:'left',padding:'8px 14px',fontSize:12,border:'none',background:'none',cursor:'pointer'},onclick:(e)=>{e.stopPropagation();S.saved=S.saved.map(s=>s.id===a.id?{...s,folderId:f.id}:s);S.moveArticle=null;saveState();render();}},f.name)));
+        bot.appendChild(dd);
+      }
+      const bm=h('button',{style:{border:'none',background:'none',cursor:'pointer',display:'flex'},onclick:(e)=>toggleSave(a,e)});
+      const bi=ic('bookmark',15);bi.style.fill=S.themeColor;bi.style.color=S.themeColor;bm.appendChild(bi);
+      bot.appendChild(bm);info.appendChild(bot);card.appendChild(info);w.appendChild(card);
+    });
+  }
+  if(S.savedView==='year'){
+    const by={};S.saved.forEach(a=>{const y=a.year||2024;if(!by[y])by[y]=[];by[y].push(a);});
+    Object.keys(by).sort((a,b)=>b-a).forEach(year=>{
+      const arts=by[year];
+      const card=h('div',{class:'fc'});
+      const hd=h('div',{class:'fh',onclick:()=>{S.expandYear=S.expandYear===year?null:year;render();}});
+      hd.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:12}},[h('div',{style:{padding:8,borderRadius:8,background:S.dark?'rgba(234,88,12,.15)':'#fff7ed',color:'#ea580c',display:'flex'}},ic('calendar',16)),h('span',{style:{fontWeight:700,fontSize:16}},year),h('span',{class:'badge'},String(arts.length))]));
+      hd.appendChild(ic(S.expandYear===year?'chevUp':'chevDown',18));card.appendChild(hd);
+      if(S.expandYear===year){const b=h('div',{class:'fb2'});arts.forEach(a=>{const mc=h('div',{class:'mc',onclick:()=>{S.detail=a;render();}});mc.appendChild(h('img',{src:a.img,class:'mthumb',alt:''}));mc.appendChild(h('div',{style:{fontWeight:600,fontSize:12,color:S.dark?'#f3f4f6':'#111',display:'-webkit-box',WebkitLineClamp:1,WebkitBoxOrient:'vertical',overflow:'hidden'}},a.title));b.appendChild(mc);});card.appendChild(b);}
+      w.appendChild(card);
+    });
+  }
+  if(S.savedView==='theme'){
+    const groups=[];
+    S.colFolders.forEach(f=>{const arts=S.saved.filter(a=>a.folderId===f.id);groups.push({id:f.id,name:f.name,type:'manual',articles:arts});});
+    S.themes.forEach(t=>{const arts=S.saved.filter(a=>{const s=(a.title+' '+a.cat).toLowerCase();return t.keywords.some(k=>s.includes(k.toLowerCase()));});if(arts.length)groups.push({id:t.id,name:t.name,type:'smart',articles:arts});});
+    const unorg=S.saved.filter(a=>!a.folderId);if(unorg.length)groups.push({id:'unorg',name:'Non classés',type:'system',articles:unorg});
+    groups.forEach(g=>{
+      const card=h('div',{class:'fc'});
+      const hd=h('div',{class:'fh',onclick:()=>{S.expandColFolder=S.expandColFolder===g.id?null:g.id;render();}});
+      hd.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:12}},[h('div',{style:{padding:8,borderRadius:8,background:g.type==='manual'?(S.dark?'rgba(99,102,241,.2)':'#eef2ff'):(S.dark?'#1f2937':'#f3f4f6'),color:g.type==='manual'?(S.dark?'#818cf8':'#6366f1'):'#6b7280',display:'flex'}},ic(g.type==='manual'?'folder':'zap',16)),h('span',{style:{fontWeight:700,fontSize:14}},g.name)]));
+      const r=h('div',{style:{display:'flex',alignItems:'center',gap:8}});r.appendChild(h('span',{class:'badge'},String(g.articles.length)));
+      if(g.type==='manual')r.appendChild(h('button',{style:{border:'none',background:'none',cursor:'pointer',color:'#9ca3af',display:'flex'},onclick:(e)=>{e.stopPropagation();S.colFolders=S.colFolders.filter(f=>f.id!==g.id);S.saved=S.saved.map(a=>a.folderId===g.id?{...a,folderId:null}:a);saveState();render();}},[ic('trash',13)]));
+      r.appendChild(ic(S.expandColFolder===g.id?'chevUp':'chevDown',16));hd.appendChild(r);card.appendChild(hd);
+      if(S.expandColFolder===g.id){const b=h('div',{class:'fb2'});g.articles.forEach(a=>{const mc=h('div',{class:'mc',onclick:()=>{S.detail=a;render();}});mc.appendChild(h('img',{src:a.img,class:'mthumb',alt:''}));mc.appendChild(h('div',{style:{fontWeight:600,fontSize:12,color:S.dark?'#f3f4f6':'#111'}},a.title));b.appendChild(mc);});card.appendChild(b);}
+      w.appendChild(card);
+    });
+  }
+  return w;
+}
+
+function rSettings(){
+  const w=h('div',{style:{padding:'16px'}});
+  w.appendChild(h('div',{class:'hero'},[
+    h('div',{style:{width:44,height:44,borderRadius:'50%',background:S.dark?'#111827':'#fff',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 10px',color:S.themeColor}},ic('zap',22)),
+    h('h2',{style:{fontWeight:700,color:S.dark?'#fb923c':'#9a3412',marginBottom:4}},'Centre de Veille'),
+    h('p',{style:{fontSize:12,color:'#9ca3af'}},'✅ Réglages sauvegardés automatiquement')
+  ]));
+
+  // Apparence
+  w.appendChild(h('p',{class:'sl'},[ic('palette',13),' Apparence']));
+  const ac=h('div',{class:'scard',style:{marginBottom:20}});
+  [['Logo','logoColor'],['Couleur principale','themeColor'],['Fond','bgColor'],['Texte','textColor']].forEach(([label,key])=>{
+    const row=h('div',{class:'srow'});row.appendChild(h('span',{style:{fontSize:13,fontWeight:500}},label));
+    row.appendChild(h('input',{type:'color',value:S[key],oninput:(e)=>{S[key]=e.target.value;saveState();render();}}));
+    ac.appendChild(row);
+  });
+  // Typographie
+  const frow=h('div',{class:'srow'});
+  frow.appendChild(h('span',{style:{fontSize:13,fontWeight:500}},'Typographie'));
+  const fontSel=h('select',{style:{padding:'6px 10px',borderRadius:8,border:'1px solid #d1d5db',background:S.dark?'#1f2937':'#fff',color:S.dark?'#f3f4f6':'#111',fontSize:12,outline:'none',cursor:'pointer'},onchange:(e)=>{S.fontFamily=e.target.value;saveState();render();}});
+  [['system','Système (défaut)'],['serif','Serif (Georgia)'],['mono','Mono (Code)'],['rounded','Rounded (Nunito)']].forEach(([val,label])=>{
+    const opt=h('option',{value:val},label);
+    if(S.fontFamily===val)opt.selected=true;
+    fontSel.appendChild(opt);
+  });
+  frow.appendChild(fontSel);
+  ac.appendChild(frow);
+  w.appendChild(ac);
+
+  // Sujets
+  w.appendChild(h('p',{class:'sl'},[ic('tag',13),' Sujets']));
+  const tw=h('div',{style:{display:'flex',flexWrap:'wrap',marginBottom:20}});
+  S.categories.forEach(cat=>{
+    const sel=S.interests.includes(cat.id);
+    const btn=h('button',{class:'tag',style:sel?{background:S.themeColor,borderColor:S.themeColor,color:'#fff'}:{},onclick:()=>{S.interests=sel?S.interests.filter(i=>i!==cat.id):[...S.interests,cat.id];saveState();render();}},cat.name);
+    if(sel){const ck=ic('check',12);ck.style.marginLeft='4px';btn.appendChild(ck);}
+    tw.appendChild(btn);
+  });w.appendChild(tw);
+
+  // Affichage
+  w.appendChild(h('p',{class:'sl'},[ic('eye',13),' Affichage']));
+  const dc=h('div',{class:'scard srow',style:{marginBottom:20}});
+  dc.appendChild(h('span',{style:{fontSize:13,fontWeight:500}},"Articles par page"));
+  dc.appendChild(h('input',{type:'number',min:'10',max:'200',step:'10',value:String(S.maxArticles),style:{width:60,padding:'8px',borderRadius:8,border:'1px solid #d1d5db',textAlign:'center',fontSize:14,fontWeight:700,outline:'none'},oninput:(e)=>{S.maxArticles=Number(e.target.value);saveState();}}));
+  w.appendChild(dc);
+
+  // Thèmes
+  w.appendChild(h('p',{class:'sl'},[ic('hash',13),' Thèmes Intelligents']));
+  const tc=h('div',{class:'scard',style:{marginBottom:12}});
+  if(!S.creatingTheme){
+    tc.appendChild(h('button',{style:{width:'100%',padding:'10px',border:'2px dashed #d1d5db',borderRadius:8,background:'none',cursor:'pointer',fontSize:13,color:'#9ca3af',display:'flex',alignItems:'center',justifyContent:'center',gap:8},onclick:()=>{S.creatingTheme=true;render();}},[ic('plus',16),' Nouveau thème']));
+  } else {
+    const form=h('div',{style:{display:'flex',flexDirection:'column',gap:10}});
+    form.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},[h('span',{style:{fontSize:11,fontWeight:700,textTransform:'uppercase'}},S.editThemeId?'Modifier':'Nouveau'),h('button',{style:{border:'none',background:'none',cursor:'pointer',display:'flex'},onclick:()=>{S.creatingTheme=false;S.editThemeId=null;render();}},[ic('x',14)])]));
+    form.appendChild(h('input',{class:'inf',type:'text',placeholder:'Nom...',value:S.newThemeName,autofocus:true,oninput:(e)=>S.newThemeName=e.target.value}));
+    form.appendChild(h('input',{class:'inf',type:'text',placeholder:'Mots-clés (virgule)',value:S.newThemeKw,oninput:(e)=>S.newThemeKw=e.target.value}));
+    form.appendChild(h('button',{class:'bprimary',style:{background:S.newThemeName&&S.newThemeKw?S.themeColor:'#9ca3af'},onclick:()=>{if(!S.newThemeName.trim()||!S.newThemeKw.trim())return;const kw=S.newThemeKw.split(',').map(k=>k.trim()).filter(Boolean);if(S.editThemeId)S.themes=S.themes.map(t=>t.id===S.editThemeId?{...t,name:S.newThemeName,keywords:kw}:t);else S.themes.push({id:'th_'+Date.now(),name:S.newThemeName,keywords:kw});S.newThemeName='';S.newThemeKw='';S.editThemeId=null;S.creatingTheme=false;saveState();render();}},S.editThemeId?'Mettre à jour':'Créer'));
+    tc.appendChild(form);
+  }
+  w.appendChild(tc);
+  S.themes.forEach(t=>{
+    const item=h('div',{class:'ti'});
+    const left=h('div');
+    left.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:6,fontWeight:700,fontSize:13}},[ic('hash',11),' '+t.name]));
+    const kws=h('div',{style:{display:'flex',flexWrap:'wrap',marginTop:4}});t.keywords.forEach(k=>kws.appendChild(h('span',{class:'kc'},k)));
+    left.appendChild(kws);item.appendChild(left);
+    const btns=h('div',{style:{display:'flex'}});
+    btns.appendChild(h('button',{style:{border:'none',background:'none',cursor:'pointer',color:'#9ca3af',padding:6,display:'flex'},onclick:()=>{S.newThemeName=t.name;S.newThemeKw=t.keywords.join(', ');S.editThemeId=t.id;S.creatingTheme=true;render();}},[ic('pencil',14)]));
+    btns.appendChild(h('button',{style:{border:'none',background:'none',cursor:'pointer',color:'#9ca3af',padding:6,display:'flex'},onclick:()=>{S.themes=S.themes.filter(th=>th.id!==t.id);saveState();render();}},[ic('trash',14)]));
+    item.appendChild(btns);w.appendChild(item);
+  });
+
+  // RSS
+  w.appendChild(h('p',{class:'sl',style:{marginTop:20}},[ic('globe',13),' Flux RSS']));
+  const rr=h('div',{style:{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}});
+  rr.appendChild(h('input',{class:'inf',type:'url',placeholder:'https://example.com/feed/',style:{flex:1,minWidth:150},oninput:(e)=>S.newFeedUrl=e.target.value}));
+  const fsel=h('select',{style:{padding:'10px 8px',borderRadius:10,border:'1px solid #d1d5db',background:S.dark?'#1f2937':'#fff',color:S.dark?'#f3f4f6':'#111',fontSize:12,outline:'none'},onchange:(e)=>{if(e.target.value==='new'){S.creatingRssFolder=true;}else{S.selFolderId=e.target.value;S.creatingRssFolder=false;}render();}});
+  S.folders.forEach(f=>{const opt=h('option',{value:f.id},f.name);if(f.id===S.selFolderId)opt.selected=true;fsel.appendChild(opt);});
+  fsel.appendChild(h('option',{value:'new'},'+ Dossier'));
+  rr.appendChild(fsel);
+  if(S.creatingRssFolder)rr.appendChild(h('input',{class:'inf',type:'text',placeholder:'Nom dossier...',style:{width:100},autofocus:true,oninput:(e)=>S.newRssFolderName=e.target.value}));
+  rr.appendChild(h('button',{style:{padding:'10px 14px',borderRadius:10,border:'none',background:S.themeColor,color:'#fff',cursor:'pointer',display:'flex',flexShrink:0},onclick:()=>{
+    if(!S.newFeedUrl.trim())return;
+    const feed={id:Date.now(),url:S.newFeedUrl,title:S.newFeedUrl.replace(/^https?:\/\//,'').split('/')[0].replace('www.','')};
+    if(S.creatingRssFolder){if(!S.newRssFolderName.trim())return;const fid='fd_'+Date.now();S.folders.push({id:fid,name:S.newRssFolderName,feeds:[feed]});S.selFolderId=fid;S.creatingRssFolder=false;S.newRssFolderName='';}
+    else{S.folders=S.folders.map(f=>f.id===S.selFolderId?{...f,feeds:[...(f.feeds||[]),feed]}:f);}
+    S.newFeedUrl='';saveState();toast('Flux ajouté — cliquez ↺');render();
+  }},[ic('plus',18)]));
+  w.appendChild(rr);
+  S.folders.forEach(f=>{
+    const fi=h('div',{class:'fi'});
+    const fh=h('div',{class:'fihead',onclick:()=>{S.expandFolder=S.expandFolder===f.id?null:f.id;render();}});
+    fh.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:8}},[h('span',{style:{fontWeight:600,fontSize:13}},f.name),h('span',{class:'badge'},String((f.feeds||[]).length))]));
+    const fr=h('div',{style:{display:'flex',alignItems:'center'}});
+    fr.appendChild(h('button',{style:{border:'none',background:'none',cursor:'pointer',color:'#9ca3af',padding:6,display:'flex'},onclick:(e)=>{e.stopPropagation();S.folders=S.folders.filter(fd=>fd.id!==f.id);saveState();render();}},[ic('trash',14)]));
+    fr.appendChild(ic(S.expandFolder===f.id?'chevUp':'chevDown',15));fh.appendChild(fr);fi.appendChild(fh);
+    if(S.expandFolder===f.id){
+      const fb=h('div',{style:{padding:8,display:'flex',flexDirection:'column',gap:6,background:S.dark?'#0f172a':'#f9fafb',borderTop:'1px solid #e5e7eb'}});
+      (f.feeds||[]).forEach(fd=>{
+        const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',borderRadius:8,border:'1px solid #e5e7eb',background:S.dark?'#111827':'#fff',marginLeft:8}});
+        row.appendChild(h('div',{},[h('div',{style:{fontSize:12,fontWeight:600}},fd.title),h('div',{style:{fontSize:10,color:'#9ca3af',marginTop:2,wordBreak:'break-all'}},fd.url||'')]));
+        row.appendChild(h('button',{style:{border:'none',background:'none',cursor:'pointer',color:'#9ca3af',display:'flex'},onclick:()=>{S.folders=S.folders.map(ff=>ff.id===f.id?{...ff,feeds:ff.feeds.filter(feed=>feed.id!==fd.id)}:ff);saveState();render();}},[ic('trash',13)]));
+        fb.appendChild(row);
+      });fi.appendChild(fb);
+    }
+    w.appendChild(fi);
+  });
+  w.appendChild(h('button',{style:{width:'100%',marginTop:12,padding:'12px',borderRadius:12,border:'none',background:S.rssLoading?'#9ca3af':S.themeColor,color:'#fff',fontWeight:700,fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8},onclick:()=>!S.rssLoading&&refreshAllFeeds(true)},[(()=>{const i=ic('refreshCw',16);if(S.rssLoading)i.classList.add('spin');return i;})(),' '+(S.rssLoading?'Chargement...':'Rafraîchir tous les flux')]));
+
+  // ── Panneau diagnostic flux ──
+  if(Object.keys(S.feedStatus||{}).length>0){
+    const diag=h('div',{style:{marginTop:16,borderRadius:12,border:'1px solid '+(S.dark?'#374151':'#e5e7eb'),overflow:'hidden'}});
+    diag.appendChild(h('div',{style:{padding:'8px 14px',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'1px',color:'#9ca3af',background:S.dark?'#1f2937':'#f9fafb'}},'Statut des flux'));
+    Object.values(S.feedStatus).forEach(s=>{
+      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 14px',borderTop:'1px solid '+(S.dark?'#374151':'#f0f0f0')}});
+      row.appendChild(h('span',{style:{fontSize:12,color:S.dark?'#e5e7eb':'#374151',flex:1}},s.title));
+      if(s.ok){
+        row.appendChild(h('span',{style:{fontSize:11,color:'#16a34a',fontWeight:600}},'✓ '+s.count+' articles'));
+      }else{
+        row.appendChild(h('span',{style:{fontSize:11,color:'#dc2626',fontWeight:600}},'✗ Échec'));
+      }
+      diag.appendChild(row);
+    });
+    w.appendChild(diag);
+  }
+  return w;
+}
+
+function rDetail(){
+  const a=S.detail;
+  const w=h('div',{style:{display:'flex',flexDirection:'column',flex:1,overflow:'hidden',background:S.dark?'#111':'#fff'}});
+  const dh=h('div',{class:'dhead',style:{flexShrink:0}});
+  const dImg=h('img',{src:a.img||svgImg('auto'),class:'dimg',alt:''});
+  dImg.onerror=function(){this.onerror=null;this.src=svgImg('auto');};
+  dh.appendChild(dImg);
+  const backBtn=h('button',{style:{position:'absolute',top:'16px',left:'16px',zIndex:99,background:'rgba(0,0,0,.6)',border:'none',borderRadius:'50%',width:44,height:44,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',cursor:'pointer',backdropFilter:'blur(8px)',WebkitBackdropFilter:'blur(8px)'},onclick:(e)=>{e.stopPropagation();S.detail=null;render();}},ic('arrowLeft',22));
+  dh.appendChild(backBtn);
+  const cat=getCat(a.cat);
+  const ov=h('div',{class:'dov'});
+  ov.appendChild(h('span',{class:'chip'},cat.name));
+  ov.appendChild(h('h1',{style:{color:'#fff',fontWeight:700,fontSize:18,lineHeight:1.3,marginTop:8}},a.title));
+  dh.appendChild(ov);w.appendChild(dh);
+
+  const db=h('div',{style:{flex:1,overflowY:'auto',paddingBottom:20}});
+
+  // ── Meta + actions ──
+  const metaWrap=h('div',{style:{padding:'16px 20px',borderBottom:'1px solid '+(S.dark?'#1f2937':'#e5e7eb'),display:'flex',justifyContent:'space-between',alignItems:'center'}});
+  metaWrap.appendChild(h('div',{},[
+    h('div',{style:{fontWeight:700,fontSize:13,color:S.dark?'#f3f4f6':'#111'}},a.source),
+    h('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},(a.time?a.time+' · ':'')+a.read),
+  ]));
+  const acts=h('div',{style:{display:'flex',gap:8}});
+  const ob=h('button',{style:{padding:8,borderRadius:'50%',border:'none',cursor:'pointer',background:isOffline(a.id)?'#dcfce7':'#f3f4f6',color:isOffline(a.id)?'#16a34a':'#6b7280',display:'flex'},onclick:(e)=>toggleOffline(a,e)});
+  ob.appendChild(ic(isOffline(a.id)?'check':'download',18));
+  const bm=h('button',{style:{padding:8,borderRadius:'50%',border:'none',cursor:'pointer',background:'#f3f4f6',display:'flex'},onclick:(e)=>toggleSave(a,e)});
+  const bi=ic('bookmark',18);bi.style.fill=isSaved(a.id)?S.themeColor:'none';bi.style.color=isSaved(a.id)?S.themeColor:'currentColor';bm.appendChild(bi);
+  acts.appendChild(ob);acts.appendChild(bm);metaWrap.appendChild(acts);
+  db.appendChild(metaWrap);
+
+  // ── Extrait de l'article ──
+  const bodyPad=h('div',{style:{padding:'20px 20px 0'}});
+
+  // Extrait depuis description RSS si suffisamment riche (>80 chars après nettoyage)
+  let rssExcerpt='';
+  if(a.description){
+    const tmp=document.createElement('div');
+    tmp.innerHTML=a.description;
+    rssExcerpt=(tmp.textContent||tmp.innerText||'').replace(/\s+/g,' ').trim();
+  }
+
+  if(rssExcerpt.length>80){
+    // Description RSS suffisante → afficher directement
+    const excerpt=rssExcerpt.slice(0,500);
+    bodyPad.appendChild(h('p',{style:{fontSize:14,lineHeight:1.7,color:S.dark?'#d1d5db':'#374151',marginBottom:16}},excerpt+(rssExcerpt.length>500?'…':'')));
+    db.appendChild(bodyPad);
+  } else {
+    // Pas de description ou trop courte → fetch de la page article
+    const loadEl=h('div',{style:{display:'flex',alignItems:'center',gap:8,color:'#9ca3af',fontSize:13,fontStyle:'italic',marginBottom:16}});
+    const spin=ic('refreshCw',14);spin.classList.add('spin');spin.style.color=S.themeColor;
+    loadEl.appendChild(spin);
+    loadEl.appendChild(document.createTextNode(' Chargement de l\'extrait…'));
+    bodyPad.appendChild(loadEl);
+    db.appendChild(bodyPad);
+
+    // Fetch asynchrone du contenu de la page article
+    if(a._excerpt!==undefined){
+      // Déjà fetché (même session)
+      loadEl.remove();
+      if(a._excerpt){
+        bodyPad.appendChild(h('p',{style:{fontSize:14,lineHeight:1.7,color:S.dark?'#d1d5db':'#374151',marginBottom:16}},a._excerpt));
+      } else {
+        bodyPad.appendChild(h('p',{style:{fontSize:13,color:'#9ca3af',fontStyle:'italic',marginBottom:16}},'Extrait non disponible. Lisez l\'article complet ci-dessous.'));
+      }
+    } else {
+      fetchExcerpt(a).then(excerpt=>{
+        a._excerpt=excerpt||'';
+        loadEl.remove();
+        if(excerpt&&excerpt.length>40){
+          bodyPad.appendChild(h('p',{style:{fontSize:14,lineHeight:1.7,color:S.dark?'#d1d5db':'#374151',marginBottom:16}},excerpt));
+        } else {
+          bodyPad.appendChild(h('p',{style:{fontSize:13,color:'#9ca3af',fontStyle:'italic',marginBottom:16}},'Extrait non disponible. Lisez l\'article complet ci-dessous.'));
+        }
+      });
+    }
+  }
+
+  // ── Bouton lire l'article ──
+  const btnWrap=h('div',{style:{padding:'0 20px 24px'}});
+  btnWrap.appendChild(h('button',{style:{width:'100%',padding:'14px',borderRadius:12,border:'none',background:S.dark?'#fff':'#000',color:S.dark?'#000':'#fff',fontWeight:700,fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8},onclick:()=>window.open(a.url,'_blank')},['Lire l\'article complet ',ic('externalLink',16)]));
+  db.appendChild(btnWrap);
+
+  // ── Articles du même site ──
+  const related=getAllArticles().filter(r=>r.id!==a.id&&r.source===a.source).slice(0,6);
+  if(related.length>0){
+    const relWrap=h('div',{style:{padding:'20px 20px 24px',borderTop:'1px solid '+(S.dark?'#1f2937':'#f0f0f0')}});
+    relWrap.appendChild(h('p',{style:{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'1px',color:'#9ca3af',marginBottom:16,display:'flex',alignItems:'center',gap:6}},[ic('list',13),' Autres articles — '+a.source]));
+    related.forEach(r=>{
+      const rtitle=r.title||'Sans titre';
+      const rtime=r.time||'';
+      let rexcerpt='';
+      if(r.description){const tmp=document.createElement('div');tmp.innerHTML=r.description;rexcerpt=(tmp.textContent||tmp.innerText||'').replace(/\s+/g,' ').trim().slice(0,100);}
+      const rc=h('div',{style:{display:'flex',gap:12,padding:'12px 0',borderBottom:'1px solid '+(S.dark?'#1f2937':'#f3f4f6'),cursor:'pointer',alignItems:'flex-start'},onclick:()=>{S.detail=r;render();}});
+      const rImg=document.createElement('img');
+      rImg.style.cssText='width:80px;height:60px;border-radius:8px;object-fit:cover;flex-shrink:0;background:#1f2937;';
+      rImg.alt='';rImg.src=r.img||svgImg(a.cat||'auto');
+      rImg.onerror=function(){this.onerror=null;this.src=svgImg(a.cat||'auto');};
+      const rInfo=document.createElement('div');
+      rInfo.style.cssText='flex:1;display:flex;flex-direction:column;gap:4px;min-width:0;';
+      const rTitle=document.createElement('p');
+      rTitle.style.cssText='font-size:13px;font-weight:600;line-height:1.4;color:'+(S.dark?'#f3f4f6':'#111')+';display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin:0;';
+      rTitle.textContent=rtitle;
+      rInfo.appendChild(rTitle);
+      if(rexcerpt){const rDesc=document.createElement('p');rDesc.style.cssText='font-size:11px;line-height:1.5;color:'+(S.dark?'#9ca3af':'#6b7280')+';display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin:0;';rDesc.textContent=rexcerpt+(rexcerpt.length===100?'…':'');rInfo.appendChild(rDesc);}
+      if(rtime){const rTime=document.createElement('p');rTime.style.cssText='font-size:10px;color:#9ca3af;margin:0;';rTime.textContent=rtime;rInfo.appendChild(rTime);}
+      rc.appendChild(rImg);rc.appendChild(rInfo);relWrap.appendChild(rc);
+    });
+    db.appendChild(relWrap);
+  }
+
+  w.appendChild(db);return w;
+}
+
+function rSearch(){
+  const w=h('div',{class:'ov'});
+  const hd=h('div',{style:{display:'flex',alignItems:'center',padding:16,borderBottom:'1px solid #e5e7eb'}});
+  hd.appendChild(h('button',{class:'ibtn',style:{marginRight:12},onclick:()=>{S.showSearch=false;S.aiResp=null;render();}},[ic('arrowLeft',20)]));
+  const inp=h('div',{style:{flex:1,display:'flex',alignItems:'center',background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:12,padding:'10px 14px',gap:10}});
+  const si=ic('sparkles',18);si.style.color='#f97316';inp.appendChild(si);
+  const field=h('input',{type:'text',placeholder:"Recherche IA...",style:{flex:1,border:'none',background:'transparent',outline:'none',fontSize:14},autofocus:true,oninput:(e)=>S.searchQ=e.target.value,onkeydown:(e)=>{if(e.key==='Enter')doSearch();}});
+  if(S.searchQ)field.value=S.searchQ;inp.appendChild(field);
+  if(S.searchQ)inp.appendChild(h('button',{style:{border:'none',background:'none',cursor:'pointer',display:'flex',color:'#9ca3af'},onclick:()=>{S.searchQ='';S.aiResp=null;render();}},[ic('x',14)]));
+  hd.appendChild(inp);w.appendChild(hd);
+  const body=h('div',{style:{flex:1,overflowY:'auto',padding:24}});
+  if(!S.aiResp&&!S.searching)body.appendChild(h('div',{class:'empty'},[ic('sparkles',44),h('p',{style:{fontWeight:600,marginTop:12}},'Assistant Design')]));
+  if(S.searching)body.appendChild(h('div',{class:'empty'},[(()=>{const s=ic('refreshCw',36);s.style.color=S.themeColor;s.classList.add('spin');return s;})(),h('p',{style:{marginTop:12}},'Analyse...')]));
+  if(S.aiResp){
+    const card=h('div',{style:{padding:16,borderRadius:16,borderLeft:'4px solid #6366f1',background:'#eef2ff',marginBottom:12}});
+    S.aiResp.split('\n').forEach(line=>card.appendChild(h('p',{style:{fontSize:13,lineHeight:1.7,color:'#374151',marginBottom:4}},line)));
+    body.appendChild(card);
+  }
+  w.appendChild(body);
+  w.appendChild(h('div',{style:{padding:16,borderTop:'1px solid #e5e7eb'}},[h('button',{class:'bprimary',style:{background:S.searchQ&&!S.searching?S.themeColor:'#9ca3af'},onclick:doSearch},'Rechercher')]));
+  return w;
+}
+
+// INIT
+render();
+refreshAllFeeds(true);
+
+// ── PWA : enregistrement du Service Worker ──
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('[SW] Enregistré:', reg.scope))
+      .catch(err => console.warn('[SW] Erreur:', err));
+  });
+}
+
+// ── PWA : bannière d'installation "Ajouter à l'écran d'accueil" ──
+let _deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _deferredPrompt = e;
+  // Afficher une bannière discrète après 3s si pas encore installée
+  setTimeout(() => {
+    if(!_deferredPrompt) return;
+    const banner = document.createElement('div');
+    banner.id = 'install-banner';
+    banner.style.cssText = `
+      position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
+      background:#111827;color:#fff;padding:12px 16px;border-radius:16px;
+      display:flex;align-items:center;gap:12px;z-index:200;
+      box-shadow:0 8px 32px rgba(0,0,0,.4);font-size:13px;
+      max-width:340px;width:calc(100% - 32px);font-family:inherit;
+    `;
+    banner.innerHTML = `
+      <span style="font-size:22px">📲</span>
+      <div style="flex:1">
+        <div style="font-weight:700;margin-bottom:2px">Installer DesignDaily</div>
+        <div style="font-size:11px;color:#9ca3af">Accès rapide depuis l'écran d'accueil</div>
+      </div>
+      <button id="install-btn" style="padding:8px 14px;border-radius:10px;border:none;
+        background:#ea580c;color:#fff;font-weight:700;font-size:12px;cursor:pointer;
+        white-space:nowrap;font-family:inherit">Installer</button>
+      <button id="install-close" style="background:none;border:none;color:#6b7280;
+        cursor:pointer;padding:4px;font-size:18px;line-height:1">✕</button>
+    `;
+    document.body.appendChild(banner);
+
+    document.getElementById('install-btn').onclick = () => {
+      _deferredPrompt.prompt();
+      _deferredPrompt.userChoice.then(c => {
+        _deferredPrompt = null;
+        banner.remove();
+      });
+    };
+    document.getElementById('install-close').onclick = () => {
+      banner.remove();
+      _deferredPrompt = null;
+    };
+  }, 3000);
+});
+</script>
+</body>
+</html>
