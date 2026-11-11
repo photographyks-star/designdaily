@@ -1,4 +1,5 @@
 {
+  "id": "designdaily",
   "name": "DesignDaily",
   "short_name": "DesignDaily",
   "description": "Veille design automobile et IA — votre flux personnalisé",
@@ -8,7 +9,10 @@
   "background_color": "#111827",
   "theme_color": "#ea580c",
   "lang": "fr",
-  "categories": ["news", "productivity"],
+  "categories": [
+    "news",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "./icon-48.png",
@@ -29,7 +33,29 @@
       "purpose": "any maskable"
     }
   ],
-  "screenshots": [],
+  "screenshots": [
+    {
+      "src": "./screenshot-flux.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Flux Design Automobile"
+    },
+    {
+      "src": "./screenshot-explorer.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Réglages et personnalisation"
+    },
+    {
+      "src": "./screenshot-sombre.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Mode sombre"
+    }
+  ],
   "shortcuts": [
     {
       "name": "Flux Design Auto",

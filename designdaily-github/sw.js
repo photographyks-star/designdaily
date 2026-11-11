@@ -1,5 +1,5 @@
 // DesignDaily Service Worker — v3 (cache agressif)
-const CACHE = 'designdaily-v3';
+const CACHE = 'designdaily-v5';
 const PRECACHE = ['./index.html','./manifest.json','./icon-192.png','./icon-512.png','./icon-48.png'];
 
 self.addEventListener('install', e => {
