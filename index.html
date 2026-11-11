@@ -100,10 +100,11 @@ function guessCat(t){
 function timeAgo(d){try{const s=(Date.now()-new Date(d))/1000;if(s<0)return'';if(s<3600)return Math.floor(s/60)+'min';if(s<86400)return Math.floor(s/3600)+'h';if(s<604800)return Math.floor(s/86400)+'j';return Math.floor(s/604800)+'sem';}catch(e){return'';}}
 const CACHE_MS=10*60*1000;
 
+// Timeout sans AbortSignal : certains environnements (aperçus en iframe) ne savent pas transmettre un signal
 function fetchWithTimeout(url, ms=10000){
-  const ctrl=new AbortController();
-  const tid=setTimeout(()=>ctrl.abort(),ms);
-  return fetch(url,{signal:ctrl.signal}).finally(()=>clearTimeout(tid));
+  let tid;
+  const timeout=new Promise((_,rej)=>{tid=setTimeout(()=>rej(new Error('Délai dépassé')),ms);});
+  return Promise.race([fetch(url),timeout]).finally(()=>clearTimeout(tid));
 }
 
 function parseXML(xmlStr,feedTitle,feedId){
@@ -141,6 +142,36 @@ function parseXML(xmlStr,feedTitle,feedId){
   }catch(e){return[];}
 }
 
+function viaTag(arr,via){arr.via=via;return arr;}
+
+// Adresse de la page d'accueil à lire quand le flux RSS ne répond pas
+function siteHome(feed){
+  if(feed.site)return feed.site;
+  try{
+    const u=new URL(feed.url);
+    // retire /feed, /rss, /atom, feed.xml, rss/all.xml, index.xml… en fin d'adresse
+    let path=u.pathname.replace(/\/[^\/]*\.(xml|rss|atom)$/i,'').replace(/\/(feed|rss|atom)\/?$/i,'');
+    return u.origin+(path||'/');
+  }catch(e){return feed.url;}
+}
+
+// Récupère le HTML d'une page via plusieurs relais, l'un après l'autre
+async function fetchPage(url){
+  const enc=encodeURIComponent(url);
+  const relays=[
+    async()=>{const r=await fetchWithTimeout('https://api.allorigins.win/raw?url='+enc,6000);if(!r.ok)throw new Error('HTTP '+r.status);return r.text();},
+    async()=>{const r=await fetchWithTimeout('https://corsproxy.io/?url='+enc,6000);if(!r.ok)throw new Error('HTTP '+r.status);return r.text();},
+    async()=>{const r=await fetchWithTimeout('https://api.codetabs.com/v1/proxy?quest='+enc,6000);if(!r.ok)throw new Error('HTTP '+r.status);return r.text();},
+    async()=>{const r=await fetchWithTimeout('https://api.allorigins.win/get?url='+enc,6000);if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();return d.contents||'';},
+  ];
+  let last='aucun relais';
+  for(const relay of relays){
+    try{const html=await relay();if(html&&html.length>500&&/<(html|body|article|div)/i.test(html))return html;last='page vide';}
+    catch(e){last=e.message;}
+  }
+  throw new Error(last);
+}
+
 async function fetchFeed(feed){
   const encoded=encodeURIComponent(feed.url);
 
@@ -150,7 +181,7 @@ async function fetchFeed(feed){
     if(r.ok){
       const d=await r.json();
       if(d.status==='ok'&&d.items?.length){
-        return d.items.slice(0,50).map((item,i)=>({
+        return viaTag(d.items.slice(0,50).map((item,i)=>({
           id:'rss_'+feed.id+'_'+i,
           title:item.title||'Sans titre',
           source:feed.title,
@@ -173,7 +204,7 @@ async function fetchFeed(feed){
             return img;
           })(),
           read:'5 min',isRss:true,folderId:null,
-        }));
+        })),'rss');
       }
     }
   }catch(e){console.warn('[rss2json]',feed.title,e.message);}
@@ -181,26 +212,22 @@ async function fetchFeed(feed){
   // Proxy 2 : allorigins + parser XML natif
   try{
     const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encoded}`,4000);
-    if(r.ok){const d=await r.json();if(d.contents){const a=parseXML(d.contents,feed.title,feed.id);if(a.length)return a;}}
+    if(r.ok){const d=await r.json();if(d.contents){const a=parseXML(d.contents,feed.title,feed.id);if(a.length)return viaTag(a,'rss');}}
   }catch(e){console.warn('[allorigins]',feed.title,e.message);}
 
   // Proxy 3 : corsproxy.io
   try{
     const r=await fetchWithTimeout(`https://corsproxy.io/?${encoded}`,4000);
-    if(r.ok){const txt=await r.text();const a=parseXML(txt,feed.title,feed.id);if(a.length)return a;}
+    if(r.ok){const txt=await r.text();const a=parseXML(txt,feed.title,feed.id);if(a.length)return viaTag(a,'rss');}
   }catch(e){console.warn('[corsproxy]',feed.title,e.message);}
 
-  // Proxy 4 : scraping HTML direct du site (si tous les RSS ont échoué)
-  const siteUrl=feed.url.replace(/\/(feed|rss|atom)(\/.*)?(\?.*)?$/,'').replace(/\/feed\/?$/,'');
+  // Dernier recours : lire la page d'accueil du site (via plusieurs relais)
+  const siteUrl=siteHome(feed);
   try{
-    const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encodeURIComponent(siteUrl)}`,5000);
-    if(r.ok){
-      const d=await r.json();
-      if(d.contents){
-        const scraped=scrapeHTML(d.contents,feed.title,feed.id,siteUrl);
-        if(scraped.length){console.log('[scrape] OK',feed.title,scraped.length,'articles');return scraped;}
-      }
-    }
+    const html=await fetchPage(siteUrl);
+    const scraped=scrapeHTML(html,feed.title,feed.id,siteUrl);
+    if(scraped.length)return viaTag(scraped,'page');
+    console.warn('[scrape]',feed.title,'aucun article reconnu');
   }catch(e){console.warn('[scrape]',feed.title,e.message);}
 
   return[];
@@ -245,16 +272,20 @@ function scrapeHTML(html, feedTitle, feedId, baseUrl){
       const linkEl=node.querySelector('a[href]');
       let url=linkEl?.getAttribute('href')||'';
       if(!url)return;
-      if(url.startsWith('/'))url=base.origin+url;
-      else if(!url.startsWith('http'))url=base.origin+'/'+url;
+      try{url=new URL(url,baseUrl).href;}catch(e){return;}
+      if(!/^https?:/.test(url))return;
       if(seen.has(url))return;
       seen.add(url);
 
       // Image — cherche og:image, puis première img > 100px
       let img='';
-      const imgEl=node.querySelector('img[src]');
+      const imgEl=node.querySelector('img');
+      // Images à chargement différé : la vraie adresse est dans data-src / srcset
+      const lazy=imgEl&&(imgEl.getAttribute('data-src')||imgEl.getAttribute('data-lazy-src')||imgEl.getAttribute('data-original')||(imgEl.getAttribute('srcset')||imgEl.getAttribute('data-srcset')||'').split(',')[0].trim().split(' ')[0]);
+      if(lazy){try{img=new URL(lazy,baseUrl).href;}catch(e){}}
       const metaOgUrl=doc.querySelector('meta[property="og:image"]')?.getAttribute('content')||'';
-      if(imgEl?.src&&imgEl.src.startsWith('http'))img=imgEl.src;
+      if(img){}
+      else if(imgEl?.src&&imgEl.src.startsWith('http'))img=imgEl.src;
       else if(imgEl?.getAttribute('src')){
         const src=imgEl.getAttribute('src');
         img=src.startsWith('/')?base.origin+src:src;
@@ -309,9 +340,12 @@ async function refreshAllFeeds(force=false){
     if(r.status==='fulfilled'&&r.value.length){
       const tagged=r.value.map(a=>({...a,source:feed.title,_feedId:feed.id,_folderId:feed.folderId}));
       results.push(...tagged);
-      S.feedStatus[feed.id]={ok:true,count:r.value.length,title:feed.title};
+      S.feedStatus[feed.id]={ok:true,count:r.value.length,title:feed.title,via:r.value.via||'rss'};
     }else{
-      S.feedStatus[feed.id]={ok:false,count:0,title:feed.title,error:r.reason?.message||'Échec'};
+      // Flux en échec : on garde ses articles déjà en mémoire plutôt que de les perdre
+      const kept=(S.rssArticles||[]).filter(a=>a._feedId===feed.id);
+      results.push(...kept);
+      S.feedStatus[feed.id]={ok:false,count:kept.length,title:feed.title,error:r.reason?.message||'Échec'};
     }
   });
   if(results.length>0){
@@ -334,9 +368,12 @@ async function _refreshSilent(){
     const feed=feeds[i];
     if(r.status==='fulfilled'&&r.value.length){
       results.push(...r.value.map(a=>({...a,source:feed.title,_feedId:feed.id,_folderId:feed.folderId})));
-      S.feedStatus[feed.id]={ok:true,count:r.value.length,title:feed.title};
+      S.feedStatus[feed.id]={ok:true,count:r.value.length,title:feed.title,via:r.value.via||'rss'};
     }else{
-      S.feedStatus[feed.id]={ok:false,count:0,title:feed.title,error:r.reason?.message||'Échec'};
+      // Flux en échec : on garde ses articles déjà en mémoire plutôt que de les perdre
+      const kept=(S.rssArticles||[]).filter(a=>a._feedId===feed.id);
+      results.push(...kept);
+      S.feedStatus[feed.id]={ok:false,count:kept.length,title:feed.title,error:r.reason?.message||'Échec'};
     }
   });
   if(results.length>0){
@@ -436,6 +473,7 @@ const FB=[
 
 
 // HELPERS
+const UNITLESS=new Set(['opacity','zIndex','fontWeight','flex','flexGrow','flexShrink','order','lineHeight','zoom']);
 function h(tag,attrs,...ch){
   const el=document.createElement(tag);
   if(attrs)Object.entries(attrs).forEach(([k,v])=>{
@@ -443,7 +481,10 @@ function h(tag,attrs,...ch){
     else if(k==='oninput')el.oninput=v;
     else if(k==='onchange')el.onchange=v;
     else if(k==='onkeydown')el.onkeydown=v;
-    else if(k==='style'&&typeof v==='object')Object.assign(el.style,v);
+    else if(k==='style'&&typeof v==='object')Object.entries(v).forEach(([p,val])=>{
+      // Un nombre sans unité est ignoré par le navigateur → on ajoute 'px' (sauf propriétés sans unité)
+      el.style[p]=(typeof val==='number'&&val!==0&&!UNITLESS.has(p))?val+'px':val;
+    });
     else if(k==='class')el.className=v;
     else if(k==='autofocus'){if(v)setTimeout(()=>el.focus(),50);}
     else el.setAttribute(k,v);
@@ -944,7 +985,7 @@ function rSettings(){
     }
 
     w.appendChild(installCard);
-  } else {
+  } else if(isStandalone){
     // Déjà installée
     w.appendChild(h('div',{style:{
       borderRadius:12,border:'1px solid #bbf7d0',background:'#f0fdf4',
@@ -976,14 +1017,14 @@ function rSettings(){
       const isSel=S[key]===c;
       const dot=document.createElement('div');
       dot.setAttribute('data-ckey',c);
-      dot.style.cssText='width:20px;height:20px;min-width:20px;border-radius:50%;background:'+c+';cursor:pointer;'+(isSel?'outline:2px solid '+S.themeColor+';outline-offset:2px;':'border:1px solid '+brd+';');
+      dot.style.cssText='width:18px;height:18px;min-width:18px;border-radius:50%;background:'+c+';cursor:pointer;'+(isSel?'outline:2px solid '+S.themeColor+';outline-offset:2px;':'border:1px solid '+brd+';');
       dot.addEventListener('click',function(){
         S[key]=c;
         nativeInp.value=c;
         preview.style.background=c;
         pills.querySelectorAll('[data-ckey]').forEach(function(d){
           const s=d.getAttribute('data-ckey')===c;
-          d.style.cssText='width:20px;height:20px;min-width:20px;border-radius:50%;background:'+d.getAttribute('data-ckey')+';cursor:pointer;'+(s?'outline:2px solid '+S.themeColor+';outline-offset:2px;':'border:1px solid '+brd+';');
+          d.style.cssText='width:18px;height:18px;min-width:18px;border-radius:50%;background:'+d.getAttribute('data-ckey')+';cursor:pointer;'+(s?'outline:2px solid '+S.themeColor+';outline-offset:2px;':'border:1px solid '+brd+';');
         });
         saveState(); applyColors();
       });
@@ -992,7 +1033,7 @@ function rSettings(){
     wrap.appendChild(pills);
     // Aperçu couleur actuelle + input natif
     const preview=document.createElement('div');
-    preview.style.cssText='width:20px;height:20px;min-width:20px;border-radius:50%;background:'+S[key]+';border:1px solid '+brd+';cursor:pointer;position:relative;overflow:hidden;margin-left:6px;flex-shrink:0;';
+    preview.style.cssText='width:18px;height:18px;min-width:18px;border-radius:50%;background:'+S[key]+';border:1px solid '+brd+';cursor:pointer;position:relative;overflow:hidden;margin-left:6px;flex-shrink:0;';
     const nativeInp=document.createElement('input');
     nativeInp.type='color'; nativeInp.value=S[key];
     nativeInp.style.cssText='opacity:0;position:absolute;inset:0;width:100%;height:100%;cursor:pointer;padding:0;border:0;';
@@ -1002,7 +1043,7 @@ function rSettings(){
     return wrap;
   }
 
-  ac.appendChild(mkColorRow('Couleur principale', 'themeColor', ['#ea580c','#f59e0b','#16a34a','#2563eb','#7c3aed','#db2777','#dc2626','#0891b2']));
+  ac.appendChild(mkColorRow('Principale', 'themeColor', ['#ea580c','#f59e0b','#16a34a','#2563eb','#7c3aed','#db2777','#dc2626','#0891b2']));
   ac.appendChild(mkColorRow('Logo',              'logoColor',  ['#000000','#111827','#1e3a5f','#7c3aed','#be123c','#ea580c','#ffffff','#d1d5db']));
   ac.appendChild(mkColorRow('Fond',              'bgColor',    ['#f9fafb','#ffffff','#f3f4f6','#111827','#1e293b','#0f172a','#fef9ee','#f0fdf4']));
   ac.appendChild(mkColorRow('Texte',             'textColor',  ['#111111','#1f2937','#374151','#6b7280','#f9fafb','#ffffff','#ea580c','#2563eb']));
@@ -1108,9 +1149,9 @@ function rSettings(){
       const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 14px',borderTop:'1px solid '+(S.dark?'#374151':'#f0f0f0')}});
       row.appendChild(h('span',{style:{fontSize:12,color:S.dark?'#e5e7eb':'#374151',flex:1}},s.title));
       if(s.ok){
-        row.appendChild(h('span',{style:{fontSize:11,color:'#16a34a',fontWeight:600}},'✓ '+s.count+' articles'));
+        row.appendChild(h('span',{style:{fontSize:11,color:s.via==='page'?'#d97706':'#16a34a',fontWeight:600}},'✓ '+s.count+' articles'+(s.via==='page'?' · page d\'accueil':'')));
       }else{
-        row.appendChild(h('span',{style:{fontSize:11,color:'#dc2626',fontWeight:600}},'✗ Échec'));
+        row.appendChild(h('span',{style:{fontSize:11,color:'#dc2626',fontWeight:600}},'✗ Échec'+(s.count?' · '+s.count+' en mémoire':'')));
       }
       diag.appendChild(row);
     });
@@ -1263,9 +1304,10 @@ refreshAllFeeds(true);
 // ── PWA : enregistrement du Service Worker ──
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
+    // sw.js absent (aperçu, fichier ouvert seul) → on ignore sans bruit
     navigator.serviceWorker.register('./sw.js')
       .then(reg => console.log('[SW] Enregistré:', reg.scope))
-      .catch(err => console.warn('[SW] Erreur:', err));
+      .catch(() => {});
   });
 }
 
