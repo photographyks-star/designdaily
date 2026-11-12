@@ -22,12 +22,14 @@ Appli de veille design automobile & IA, installable comme application native.
 | Fichier | Rôle |
 |---------|------|
 | `index.html` | Application complète |
-| `manifest.json` | Config PWA (nom, icône, couleurs) |
-| `sw.js` | Service Worker (cache offline) |
+| `manifest.json` | Config PWA (nom, icônes, couleurs, captures) |
+| `sw.js` | Service Worker (ouverture sans connexion, mise à jour) |
 | `icon-48.png` | Favicon |
 | `icon-192.png` | Icône app Android |
 | `icon-512.png` | Icône splash screen |
+| `screenshot-*.png` | Captures d'écran déclarées dans le manifeste |
 
 ## Mise à jour
 
-Modifier `index.html` directement dans GitHub (icône crayon) → Commit → l'app se met à jour automatiquement en quelques secondes.
+Remplacer les fichiers du dépôt (Add file → Upload files → Commit), puis attendre une à deux minutes.
+À l'ouverture suivante avec du réseau, l'app charge la nouvelle version. Sans réseau, elle ouvre la dernière version gardée sur l'appareil.
