@@ -1,0 +1,96 @@
+{
+  "folders": [
+    {
+      "id": "f1",
+      "name": "Veille Générale",
+      "feeds": [
+        {
+          "id": 101,
+          "title": "Smashing Magazine",
+          "url": "https://www.smashingmagazine.com/feed/"
+        },
+        {
+          "id": 102,
+          "title": "UX Collective",
+          "url": "https://uxdesign.cc/feed"
+        }
+      ]
+    },
+    {
+      "id": "f_ia",
+      "name": "Intelligence Artificielle",
+      "feeds": [
+        {
+          "id": 301,
+          "title": "MIT Technology Review AI",
+          "url": "https://www.technologyreview.com/feed/"
+        },
+        {
+          "id": 302,
+          "title": "The Gradient",
+          "url": "https://thegradient.pub/rss/"
+        },
+        {
+          "id": 303,
+          "title": "Hugging Face Blog",
+          "url": "https://huggingface.co/blog/feed.xml"
+        },
+        {
+          "id": 304,
+          "title": "Import AI",
+          "url": "https://jack-clark.net/feed/"
+        },
+        {
+          "id": 305,
+          "title": "AI Alignment Forum",
+          "url": "https://www.alignmentforum.org/feed.xml"
+        },
+        {
+          "id": 306,
+          "title": "Towards Data Science",
+          "url": "https://towardsdatascience.com/feed"
+        }
+      ]
+    },
+    {
+      "id": "f_auto",
+      "name": "Design Automobile",
+      "feeds": [
+        {
+          "id": 201,
+          "title": "Car Design News",
+          "url": "https://www.cardesignnews.com/",
+          "site": "https://www.cardesignnews.com/",
+          "mode": "page"
+        },
+        {
+          "id": 202,
+          "title": "Car Body Design",
+          "url": "https://www.carbodydesign.com/feed/"
+        },
+        {
+          "id": 203,
+          "title": "Lignes Auto",
+          "url": "https://lignesauto.fr/",
+          "site": "https://lignesauto.fr/",
+          "mode": "page"
+        },
+        {
+          "id": 204,
+          "title": "Carstyling.ru",
+          "url": "https://carstyling.ru/en/rss/all.xml"
+        },
+        {
+          "id": 205,
+          "title": "Form Trends",
+          "url": "https://www.formtrends.com/feed/"
+        },
+        {
+          "id": 206,
+          "title": "Automotive Design Planet",
+          "url": "https://automotivedesignplanet.com/feed/"
+        }
+      ]
+    }
+  ]
+}

@@ -18,7 +18,7 @@
 <div id="app"></div>
 <script>
 // PERSISTENCE
-const PERSIST=['dark','themeColor','logoColor','bgColor','textColor','fontFamily','interests','maxArticles','saved','offline','themes','colFolders','savedView','folders','rssLastFetch','rssArticles'];
+const PERSIST=['dark','themeColor','logoColor','bgColor','textColor','fontFamily','interests','maxArticles','saved','offline','themes','colFolders','savedView','folders','collectRepo','rssLastFetch','rssArticles'];
 let _lsAvailable=false;
 try{localStorage.setItem('_t','1');localStorage.removeItem('_t');_lsAvailable=true;}catch(e){}
 // Build 202603110550 — rssArticles persisté pour affichage instantané
@@ -44,7 +44,7 @@ function saveState(){
 
 // STATE
 const DEF={
-  tab:'feed',filter:'f_auto',detail:null,purging:false,confirm:null,
+  tab:'feed',filter:'f_auto',detail:null,purging:false,confirm:null,collectRepo:'',collectInfo:null,
   dark:false,themeColor:'#ea580c',logoColor:'#000000',bgColor:'#f9fafb',textColor:'#111111',fontFamily:'system',
   interests:['ui','ux','ai','tech','auto'],maxArticles:100,
   saved:[],offline:[],savedView:'list',
@@ -239,7 +239,7 @@ function parseXML(xmlStr,feedTitle,feedId){
         if(ogM)img=ogM[1];
       }
       if(!img)img=svgImg(guessCat(title)||'auto');
-      return{id:'rss_'+feedId+'_'+i,title,source:feedTitle,url:link,time:timeAgo(pub),pubDate:pub,year:pub?new Date(pub).getFullYear():2024,description:desc,cat:guessCat(title+' '+desc),img,read:'5 min',isRss:true,folderId:null};
+      return{id:'rss_'+feedId+'_'+i,title,source:feedTitle,url:link,pubDate:pub,description:desc,cat:guessCat(title+' '+desc),img,read:'5 min',isRss:true,folderId:null};
     });
   }catch(e){return[];}
 }
@@ -257,110 +257,184 @@ function siteHome(feed){
   }catch(e){return feed.url;}
 }
 
-// Récupère le HTML d'une page via plusieurs relais, l'un après l'autre
-async function fetchPage(url){
-  const enc=encodeURIComponent(url);
-  const relays=[
-    async()=>{const r=await fetchWithTimeout('https://api.allorigins.win/raw?url='+enc,6000);if(!r.ok)throw new Error('HTTP '+r.status);return r.text();},
-    async()=>{const r=await fetchWithTimeout('https://corsproxy.io/?url='+enc,6000);if(!r.ok)throw new Error('HTTP '+r.status);return r.text();},
-    async()=>{const r=await fetchWithTimeout('https://api.codetabs.com/v1/proxy?quest='+enc,6000);if(!r.ok)throw new Error('HTTP '+r.status);return r.text();},
-    async()=>{const r=await fetchWithTimeout('https://api.allorigins.win/get?url='+enc,6000);if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();return d.contents||'';},
-  ];
-  let last='aucun relais';
-  for(const relay of relays){
-    try{const html=await relay();if(html&&html.length>500&&/<(html|body|article|div|rss|feed|\?xml)/i.test(html))return html;last='page vide';}
-    catch(e){last=e.message;}
+// ── Relais ──
+// Un navigateur n'a pas le droit de lire directement un autre site : il passe par un relais public.
+// Ces relais tombent souvent en panne ; on mesure donc leur état et on saute ceux qui ne répondent plus.
+const RELAYS=[
+  {name:'direct',     url:u=>u,                                                          text:r=>r.text()},
+  {name:'allorigins', url:u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u), text:r=>r.text()},
+  {name:'cors.lol',   url:u=>'https://api.cors.lol/?url='+encodeURIComponent(u),          text:r=>r.text()},
+  {name:'corsproxy',  url:u=>'https://corsproxy.io/?url='+encodeURIComponent(u),          text:r=>r.text()},
+  {name:'codetabs',   url:u=>'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(u), text:r=>r.text()},
+];
+const _relayFails={};          // nom du relais → échecs consécutifs
+const _directDead=new Set();   // sites qui refusent la lecture directe
+const RELAY_MAX_FAILS=3;
+function relayOk(name){return (_relayFails[name]||0)<RELAY_MAX_FAILS;}
+function relayMark(name,ok){_relayFails[name]=ok?0:(_relayFails[name]||0)+1;}
+// Une panne du relais lui-même (injoignable, trop lent, accès refusé, quota) — pas une erreur du site visé
+function relayFault(e){return /Failed to fetch|Délai dépassé|NetworkError|Load failed|HTTP (401|403|429|52\d)/i.test(e.message||'');}
+function relaysReset(){Object.keys(_relayFails).forEach(k=>delete _relayFails[k]);}
+function relaysAllDown(){return RELAYS.filter(r=>r.name!=='direct').every(r=>!relayOk(r.name));}
+function hostOf(u){try{return new URL(u).hostname;}catch(e){return'';}}
+
+// Récupère le texte d'une adresse (flux ou page) en essayant chaque relais en état de marche.
+// accept(texte) dit si la réponse est utilisable ; sinon on passe au relais suivant.
+async function fetchVia(url,accept){
+  const reasons=[];
+  for(const relay of RELAYS){
+    if(relay.name==='direct'){if(_directDead.has(hostOf(url)))continue;}
+    else if(!relayOk(relay.name)){reasons.push(relay.name+' : hors service');continue;}
+    try{
+      const r=await fetchWithTimeout(relay.url(url),relay.name==='direct'?5000:8000);
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      const txt=await relay.text(r);
+      if(relay.name!=='direct')relayMark(relay.name,true);
+      if(txt&&txt.length>200&&(!accept||accept(txt)))return txt;
+      reasons.push(relay.name+' : réponse vide');
+    }catch(e){
+      if(relay.name==='direct')_directDead.add(hostOf(url));
+      else{if(relayFault(e))relayMark(relay.name,false);reasons.push(relay.name+' : '+(/Failed to fetch|NetworkError|Load failed/i.test(e.message)?'injoignable':e.message));}
+    }
   }
-  throw new Error(last);
+  throw new Error(reasons.join(' · ')||'aucun relais disponible');
+}
+async function fetchPage(url){
+  return fetchVia(url,t=>/<(html|body|article|div|rss|feed|\?xml)/i.test(t));
 }
 
-// Ajoute un paramètre qui change chaque minute : oblige les relais à relire le site au lieu de resservir une copie ancienne
-function bust(url){return url+(url.includes('?')?'&':'?')+'_dd='+Math.floor(Date.now()/60000);}
-async function fetchFeed(feed,fresh){
-  if(feed.mode==='page')return fetchFeedFromPage(feed);
-  const encoded=encodeURIComponent(feed.url);
-  const encodedFresh=fresh?encodeURIComponent(bust(feed.url)):encoded;
+// Charge une source : flux RSS d'abord, page d'accueil du site en dernier recours.
+// En cas d'échec, l'erreur renvoyée dit ce qui a été essayé (affiché dans « Statut des flux »).
+async function fetchFeed(feed){
+  if(feed.mode==='page')return fetchFeedFromPage(feed,[]);
+  const reasons=[];
 
-  // Proxy 1 : rss2json — le seul qui a fonctionné, en premier
-  try{
-    const r=await fetchWithTimeout(`https://api.rss2json.com/v1/api.json?rss_url=${encodedFresh}`,4000);
-    if(r.ok){
+  // 1) rss2json : convertit le flux en données prêtes à l'emploi
+  if(relayOk('rss2json')){
+    try{
+      const r=await fetchWithTimeout('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(feed.url),8000);
+      if(!r.ok)throw new Error('HTTP '+r.status);
       const d=await r.json();
+      relayMark('rss2json',true);
       if(d.status==='ok'&&d.items?.length){
         return viaTag(d.items.slice(0,50).map((item,i)=>({
           id:'rss_'+feed.id+'_'+i,
           title:item.title||'Sans titre',
           source:feed.title,
           url:item.link||feed.url,
-          time:timeAgo(item.pubDate),
           pubDate:item.pubDate||'',
-          year:new Date(item.pubDate).getFullYear()||2024,
           description:item.description||item.content||'',
           cat:guessCat((item.title||'')+(item.description||'')),
           img:(()=>{
-            let img=item.thumbnail||item.enclosure?.link||'';
-            // Cherche dans le contenu HTML de l'article
+            let img=item.thumbnail||(/\.(jpe?g|png|webp|gif)(\?|$)/i.test(item.enclosure?.link||'')?item.enclosure.link:'')||'';
             if(!img||img.length<10){
-              const desc=item.description||item.content||'';
-              const m=desc.match(/src=["']([^"']+\.(jpg|jpeg|png|webp)[^"']*)/i);
+              const m=(item.description||item.content||'').match(/src=["']([^"']+\.(jpg|jpeg|png|webp)[^"']*)/i);
               if(m)img=m[1];
             }
-            // Fallback placehold avec couleur par source
             if(!img||img.length<10) img=svgImg(guessCat(item.title)||'auto');
             return img;
           })(),
           read:'5 min',isRss:true,folderId:null,
         })),'rss');
       }
-    }
-  }catch(e){console.warn('[rss2json]',feed.title,e.message);}
+      reasons.push('rss2json : '+(d.message||'flux vide'));
+    }catch(e){if(relayFault(e))relayMark('rss2json',false);reasons.push('rss2json : '+(/Failed to fetch|NetworkError|Load failed/i.test(e.message)?'injoignable':e.message));}
+  }else reasons.push('rss2json : hors service');
 
-  // Proxy 2 : allorigins + parser XML natif
+  // 2) lecture du flux lui-même par un relais
   try{
-    const r=await fetchWithTimeout(`https://api.allorigins.win/get?url=${encoded}`,4000);
-    if(r.ok){const d=await r.json();if(d.contents){const a=parseXML(d.contents,feed.title,feed.id);if(a.length)return viaTag(a,'rss');}}
-  }catch(e){console.warn('[allorigins]',feed.title,e.message);}
+    const xml=await fetchVia(feed.url,t=>/<(rss|feed|rdf:RDF)\b/i.test(t));
+    const a=parseXML(xml,feed.title,feed.id);
+    if(a.length)return viaTag(a,'rss');
+    reasons.push('flux illisible');
+  }catch(e){reasons.push(e.message);}
 
-  // Proxy 3 : corsproxy.io
-  try{
-    const r=await fetchWithTimeout(`https://corsproxy.io/?${encoded}`,4000);
-    if(r.ok){const txt=await r.text();const a=parseXML(txt,feed.title,feed.id);if(a.length)return viaTag(a,'rss');}
-  }catch(e){console.warn('[corsproxy]',feed.title,e.message);}
-
-  return fetchFeedFromPage(feed);
+  // 3) page d'accueil du site
+  return fetchFeedFromPage(feed,reasons);
 }
 
-// Lit la page d'accueil du site (via plusieurs relais) quand il n'y a pas de flux RSS utilisable
-async function fetchFeedFromPage(feed){
+// Lit la page d'accueil du site quand il n'y a pas de flux RSS utilisable
+async function fetchFeedFromPage(feed,reasons){
   const siteUrl=siteHome(feed);
-  // 1er essai en contournant le cache des relais, 2e essai avec l'adresse simple
-  for(const url of [bust(siteUrl),siteUrl]){
-    try{
-      const html=await fetchPage(url);
-      // La page annonce un flux RSS : on l'utilise (plus fiable que la lecture de la page)
-      if(feed.mode!=='page'){
-        const m=html.match(/<link[^>]+type=["']application\/(?:rss|atom)\+xml["'][^>]*>/i);
-        const href=m&&(m[0].match(/href=["']([^"']+)["']/i)||[])[1];
-        if(href){
-          try{
-            const rssUrl=new URL(href.replace(/&amp;/g,'&'),siteUrl).href;
-            if(rssUrl.replace(/\/$/,'')!==feed.url.replace(/\/$/,'')){
-              const viaRss=parseXML(await fetchPage(rssUrl),feed.title,feed.id);
-              if(viaRss.length){
-                S.folders=S.folders.map(f=>({...f,feeds:(f.feeds||[]).map(fd=>fd.id===feed.id?{...fd,url:rssUrl,site:siteUrl}:fd)}));
-                return viaTag(viaRss,'rss');
-              }
+  try{
+    const html=await fetchPage(siteUrl);
+    // La page annonce un flux RSS : on l'utilise (plus fiable que la lecture de la page)
+    if(feed.mode!=='page'){
+      const m=html.match(/<link[^>]+type=["']application\/(?:rss|atom)\+xml["'][^>]*>/i);
+      const href=m&&(m[0].match(/href=["']([^"']+)["']/i)||[])[1];
+      if(href){
+        try{
+          const rssUrl=new URL(href.replace(/&amp;/g,'&'),siteUrl).href;
+          if(rssUrl.replace(/\/$/,'')!==feed.url.replace(/\/$/,'')){
+            const viaRss=parseXML(await fetchPage(rssUrl),feed.title,feed.id);
+            if(viaRss.length){
+              S.folders=S.folders.map(f=>({...f,feeds:(f.feeds||[]).map(fd=>fd.id===feed.id?{...fd,url:rssUrl,site:siteUrl}:fd)}));
+              return viaTag(viaRss,'rss');
             }
-          }catch(e){console.warn('[rss auto]',feed.title,e.message);}
-        }
+          }
+        }catch(e){console.warn('[rss auto]',feed.title,e.message);}
       }
-      const scraped=scrapeHTML(html,feed.title,feed.id,siteUrl);
-      if(scraped.length)return viaTag(scraped,'page');
-      console.warn('[scrape]',feed.title,'aucun article reconnu');
-    }catch(e){console.warn('[scrape]',feed.title,e.message);}
-  }
+    }
+    const scraped=scrapeHTML(html,feed.title,feed.id,siteUrl);
+    if(scraped.length)return viaTag(scraped,'page');
+    reasons.push('page : aucun article reconnu');
+  }catch(e){if(!reasons.includes(e.message))reasons.push('page : '+e.message);}
+  throw new Error(reasons.join(' · '));
+}
 
-  return[];
+// ── Collecte automatique (GitHub) ──
+// Un petit programme hébergé dans le dépôt GitHub va chercher les articles toutes les 30 minutes et
+// publie le résultat dans un fichier. L'app lit ce fichier : aucun relais n'est alors nécessaire.
+function feedKey(u){
+  let t=String(u||'').replace(/#.*$/,'');
+  const q=(t.match(/\?(.*)$/)||[])[1]||'';t=t.replace(/\?.*$/,'');
+  const p=(q.match(/(?:^|&)(p=\d+|feed=[\w-]+)/)||[])[1];
+  return (t.replace(/^https?:\/\/(www\.)?/i,'').replace(/\/+$/,'')+(p?'?'+p:'')).toLowerCase();
+}
+// Site hébergé sur GitHub Pages : le dépôt se déduit de l'adresse (pseudo.github.io/depot/)
+function repoFromLocation(host,path){
+  const m=String(host).match(/^([\w-]+)\.github\.io$/i);
+  if(!m)return'';
+  const seg=String(path).split('/').filter(Boolean)[0];
+  return m[1]+'/'+(seg&&!/\.html?$/.test(seg)?seg:m[1]+'.github.io');
+}
+// Adresse du fichier de collecte : réglage saisi dans Explorer, sinon déduite de l'adresse github.io
+function collectUrl(){
+  const v=(S.collectRepo||'').trim();
+  if(/^https?:\/\//i.test(v))return v;
+  let repo=v.replace(/^github\.com\//i,'').replace(/\.git$/,'').replace(/^\/+|\/+$/g,'');
+  if(!repo)repo=repoFromLocation(location.hostname,location.pathname);
+  return /^[\w.-]+\/[\w.-]+$/.test(repo)?'https://raw.githubusercontent.com/'+repo+'/data/articles.json':'';
+}
+async function fetchCollect(){
+  const url=collectUrl();
+  if(!url){S.collectInfo=null;return null;}
+  try{
+    const r=await fetchWithTimeout(url+(url.includes('?')?'&':'?')+'t='+Math.floor(Date.now()/60000),10000);
+    if(!r.ok)throw new Error(r.status===404?'fichier introuvable':'HTTP '+r.status);
+    const d=await r.json();
+    if(!d||!Array.isArray(d.articles)||!Array.isArray(d.sources))throw new Error('fichier illisible');
+    S.collectInfo={ok:true,at:Date.parse(d.generatedAt)||0,total:d.sources.length,good:d.sources.filter(x=>x.ok).length};
+    return d;
+  }catch(e){
+    S.collectInfo={ok:false,error:e.message==='Failed to fetch'?'injoignable':e.message};
+    return null;
+  }
+}
+// Articles d'une source tels que fournis par la collecte (ou null si la collecte ne la couvre pas)
+function fromCollect(col,feed){
+  if(!col)return null;
+  const keys=[feedKey(feed.url),feed.site?feedKey(feed.site):''].filter(Boolean);
+  const src=col.sources.find(x=>keys.includes(x.feed)||keys.includes(feedKey(x.url)));
+  if(!src)return null;
+  const arts=col.articles.filter(a=>a.feed===src.feed).map((a,i)=>({
+    id:'rss_'+feed.id+'_'+i,title:a.title||'Sans titre',source:feed.title,url:a.url,
+    pubDate:a.pubDate||'',_seen:a.seen||0,_done:true,
+    description:a.description||'',cat:guessCat((a.title||'')+' '+(a.description||'')),
+    img:a.img||svgImg(guessCat(a.title)),read:'5 min',isRss:true,folderId:null,
+  }));
+  if(!arts.length)return null;      // rien pour cette source → on tentera les relais
+  return viaTag(arts,'collecte');
 }
 
 // Scraping HTML — extrait articles depuis la page d'accueil du site
@@ -477,7 +551,7 @@ let _refreshStart=0;
 async function refreshAllFeeds(manual=false){
   const now=Date.now();
   // Une actualisation est déjà en cours (sauf si elle est bloquée depuis plus de 40 s)
-  if(_refreshStart&&now-_refreshStart<40000){if(manual)toast('Actualisation déjà en cours…');return;}
+  if(_refreshStart&&now-_refreshStart<60000){if(manual)toast('Actualisation déjà en cours…');return;}
   const feeds=S.folders.flatMap(f=>(f.feeds||[]).map(fd=>({...fd,folderId:f.id})));
   if(!feeds.length){if(manual)toast('Aucune source à actualiser');return;}
   if(typeof navigator!=='undefined'&&navigator.onLine===false){
@@ -488,11 +562,20 @@ async function refreshAllFeeds(manual=false){
   const before=new Set((S.rssArticles||[]).map(a=>a.id));
   S.rssLoading=true;S.rssError=null;render();
   try{
-    // Tous les flux en parallèle ; au bout de 25 s on prend ce qui est arrivé
-    const done=new Array(feeds.length).fill(null);
-    const runs=feeds.map((f,i)=>fetchFeed(f,manual).then(v=>{done[i]={status:'fulfilled',value:v};},e=>{done[i]={status:'rejected',reason:e};}));
-    await Promise.race([Promise.all(runs),new Promise(res=>setTimeout(res,25000))]);
+    // 1) Collecte automatique : un seul fichier à lire, aucun relais
+    const col=await fetchCollect();
     if(_refreshStart!==runId)return; // remplacée par une actualisation plus récente
+    if(manual)relaysReset();          // à la demande, on retente tous les relais
+    const done=new Array(feeds.length).fill(null);
+    const viaRelay=[];
+    feeds.forEach((f,i)=>{const c=fromCollect(col,f);if(c)done[i]={status:'fulfilled',value:c};else viaRelay.push(i);});
+    // 2) Sources non couvertes par la collecte : relais publics, 4 à la fois, 35 s au maximum
+    if(viaRelay.length){
+      let k=0;
+      const worker=async()=>{while(k<viaRelay.length){const i=viaRelay[k++];try{done[i]={status:'fulfilled',value:await fetchFeed(feeds[i])};}catch(e){done[i]={status:'rejected',reason:e};}}};
+      await Promise.race([Promise.all([worker(),worker(),worker(),worker()]),new Promise(res=>setTimeout(res,35000))]);
+    }
+    if(_refreshStart!==runId)return;
     const allResults=done.map(d=>d||{status:'rejected',reason:new Error('Délai dépassé')});
     const results=collectResults(feeds,allResults);
     const ok=Object.values(S.feedStatus).filter(x=>x.ok).length;
@@ -504,7 +587,7 @@ async function refreshAllFeeds(manual=false){
     S.rssLoading=false;
     if(ok===0){
       if(hadArticles)toast('Aucune source joignable — articles en mémoire conservés');
-      else{S.rssError='Aucune source joignable pour le moment. Vérifiez votre connexion puis réessayez.';render();}
+      else{S.rssError=collectUrl()?'Aucune source joignable pour le moment. Vérifiez votre connexion puis réessayez.':'Aucune source joignable : les relais publics ne répondent pas. Activez la collecte automatique dans Explorer.';render();}
     }else{
       const fresh=hadArticles?results.filter(a=>!before.has(a.id)).length:results.length;
       toast((fresh?'✓ '+fresh+(hadArticles?' nouveaux articles':' articles'):'✓ À jour, aucun nouvel article')+' · '+ok+'/'+feeds.length+' sources');
@@ -554,7 +637,7 @@ async function purgeAndReload(){
   const backup=S.rssArticles||[];const backupFetch=S.rssLastFetch;
   S.purging=true;
   S.rssArticles=[];S.rssLastFetch=0;S.feedStatus={};S.rssError=null;S.detail=null;S.tab='feed';
-  _enrichTried.clear();_refreshStart=0;
+  _enrichTried.clear();_refreshStart=0;relaysReset();_directDead.clear();
   saveState();
   const scr=document.querySelector('.scr');if(scr)scr.scrollTop=0;
   // Copies des réponses des relais gardées pour le mode hors ligne
@@ -596,7 +679,7 @@ function collectResults(feeds,allResults){
           // Article sans date lisible : on retient le moment où l'app l'a vu pour la première fois.
           // Au tout premier chargement d'un site, ce moment est inconnu → l'article passe après les articles datés.
           const old=prevByUrl.get(a.url);
-          a._seen=old?(old._seen||0):(hadBefore?now-idx*1000:0);
+          if(!a._seen)a._seen=old?(old._seen||0):(hadBefore?now-idx*1000:0);
           a._order=idx;
         }
         results.push(a);n++;
@@ -606,7 +689,7 @@ function collectResults(feeds,allResults){
       // Flux en échec : on garde ses articles déjà en mémoire plutôt que de les perdre
       const kept=prev.filter(a=>a._feedId===feed.id);
       kept.forEach(a=>{if(!seenIds.has(a.id)){seenIds.add(a.id);results.push(a);}});
-      S.feedStatus[feed.id]={ok:false,count:kept.length,title:feed.title,error:r.reason?.message||'Échec'};
+      S.feedStatus[feed.id]={ok:false,count:kept.length,title:feed.title,error:(r.reason&&r.reason.message)||'Échec'};
     }
   });
   return results;
@@ -999,10 +1082,10 @@ async function fetchExcerpt(article){
 const _excerptJobs=new Set(),_excerptTried=new Set();
 // Complète en arrière-plan les articles sans extrait ou sans date (ceux du haut de la liste d'abord)
 const _enrichTried=new Set();let _enrichRunning=false;
-const ENRICH_MAX=80;   // nombre maximal de pages d'articles lues en arrière-plan par session
-function needsInfo(a){return a.isRss&&!a.isExample&&a.url&&a.url!=='#'&&!_enrichTried.has(a.id)&&((a.description||'').length<40||!a.ts);}
+const ENRICH_MAX=30;   // nombre maximal de pages d'articles lues en arrière-plan par session
+function needsInfo(a){return a.isRss&&!a.isExample&&!a._done&&a.url&&a.url!=='#'&&!_enrichTried.has(a.id)&&((a.description||'').length<40||!a.ts);}
 function queueEnrich(list){
-  if(_enrichRunning||(typeof navigator!=='undefined'&&navigator.onLine===false))return;
+  if(_enrichRunning||relaysAllDown()||(typeof navigator!=='undefined'&&navigator.onLine===false))return;
   const todo=list.filter(needsInfo).slice(0,Math.min(12,ENRICH_MAX-_enrichTried.size));
   if(!todo.length)return;
   _enrichRunning=true;
@@ -1451,6 +1534,34 @@ function rSettings(){
   });
   w.appendChild(h('button',{style:{width:'100%',marginTop:12,padding:'12px',borderRadius:12,border:'none',background:S.rssLoading?'#9ca3af':S.themeColor,color:'#fff',fontWeight:700,fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8},onclick:()=>refreshAllFeeds(true)},[(()=>{const i=ic('refreshCw',16);if(S.rssLoading)i.classList.add('spin');return i;})(),' '+(S.rssLoading?'Chargement...':'Rafraîchir tous les flux')]));
 
+  // ── Collecte automatique ──
+  {
+    const ci=S.collectInfo;const url=collectUrl();
+    const cc=h('div',{class:'scard',style:{marginTop:16}});
+    cc.appendChild(h('div',{style:{fontSize:13,fontWeight:700,marginBottom:6}},'Collecte automatique'));
+    let msg,color='#9ca3af';
+    if(ci&&ci.ok){
+      const old=Date.now()-ci.at>3*36e5;
+      msg=(old?'⚠ Dernière collecte : ':'✓ Active — dernière collecte : ')+(timeAgo(ci.at)||'date inconnue')+' · '+ci.good+'/'+ci.total+' sources'+(old?'. Vérifiez l\'onglet Actions du dépôt GitHub.':'');
+      color=old?'#d97706':'#16a34a';
+    }else if(url&&ci){msg='✗ '+ci.error+'. Vérifiez le nom du dépôt et que l\'action « Collecte des articles » a tourné au moins une fois.';color='#dc2626';}
+    else if(url)msg='Pas encore vérifiée — lancez une actualisation.';
+    else msg='Non configurée. Les articles passent par des relais publics, souvent en panne. Indiquez votre dépôt GitHub pour les charger de façon fiable.';
+    cc.appendChild(h('p',{style:{fontSize:12,lineHeight:1.5,color,marginBottom:10}},msg));
+    const auto=!S.collectRepo&&url?url.replace('https://raw.githubusercontent.com/','').replace('/data/articles.json',''):'';
+    const row=h('div',{style:{display:'flex',gap:8}});
+    row.appendChild(h('input',{class:'inf',type:'text','data-fk':'collectrepo',autocapitalize:'off',autocorrect:'off',spellcheck:'false',placeholder:auto||'pseudo/nom-du-depot',value:S.collectRepoDraft!==undefined?S.collectRepoDraft:(S.collectRepo||''),style:{boxSizing:'border-box',flex:1,minWidth:0},oninput:(e)=>S.collectRepoDraft=e.target.value}));
+    row.appendChild(h('button',{style:{padding:'0 14px',borderRadius:10,border:'none',background:S.themeColor,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:700,flexShrink:0},onclick:()=>{
+      S.collectRepo=(S.collectRepoDraft!==undefined?S.collectRepoDraft:S.collectRepo||'').trim().replace(/^https?:\/\/github\.com\//i,'');
+      delete S.collectRepoDraft;saveState();
+      if(S.collectRepo&&!collectUrl()){toast('Format attendu : pseudo/nom-du-depot');return;}
+      if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+      _refreshStart=0;refreshAllFeeds(true);
+    }},'Enregistrer'));
+    cc.appendChild(row);
+    w.appendChild(cc);
+  }
+
   if(JSON.stringify(S.folders)!==DEFAULT_FOLDERS){
     w.appendChild(h('button',{style:{width:'100%',marginTop:8,padding:'10px',borderRadius:12,border:'1px solid '+(S.dark?'#374151':'#d1d5db'),background:'transparent',color:S.dark?'#9ca3af':'#6b7280',fontSize:12,fontWeight:600,cursor:'pointer'},onclick:()=>askConfirm('Rétablir les sources d\'origine ?','Vos dossiers et sources seront remplacés par ceux fournis avec l\'application. Vos articles sauvegardés sont conservés.','Rétablir',()=>{
       S.folders=JSON.parse(DEFAULT_FOLDERS);
@@ -1466,13 +1577,18 @@ function rSettings(){
     const diag=h('div',{style:{marginTop:16,borderRadius:12,border:'1px solid '+(S.dark?'#374151':'#e5e7eb'),overflow:'hidden'}});
     diag.appendChild(h('div',{style:{padding:'8px 14px',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'1px',color:'#9ca3af',background:S.dark?'#1f2937':'#f9fafb'}},'Statut des flux'));
     Object.values(S.feedStatus).forEach(s=>{
-      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 14px',borderTop:'1px solid '+(S.dark?'#374151':'#f0f0f0')}});
-      row.appendChild(h('span',{style:{fontSize:12,color:S.dark?'#e5e7eb':'#374151',flex:1}},s.title));
+      const row=h('div',{style:{padding:'8px 14px',borderTop:'1px solid '+(S.dark?'#374151':'#f0f0f0')}});
+      const line=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}});
+      line.appendChild(h('span',{style:{fontSize:12,color:S.dark?'#e5e7eb':'#374151',flex:1,minWidth:0}},s.title));
       if(s.ok){
-        row.appendChild(h('span',{style:{fontSize:11,color:s.via==='page'?'#d97706':'#16a34a',fontWeight:600}},'✓ '+s.count+' articles'+(s.via==='page'?' · page d\'accueil':'')));
+        const how=s.via==='page'?' · page d\'accueil':s.via==='collecte'?' · collecte':'';
+        line.appendChild(h('span',{style:{fontSize:11,color:s.via==='page'?'#d97706':'#16a34a',fontWeight:600,flexShrink:0}},'✓ '+s.count+' articles'+how));
       }else{
-        row.appendChild(h('span',{style:{fontSize:11,color:'#dc2626',fontWeight:600}},'✗ Échec'+(s.count?' · '+s.count+' en mémoire':'')));
+        line.appendChild(h('span',{style:{fontSize:11,color:'#dc2626',fontWeight:600,flexShrink:0}},'✗ Échec'+(s.count?' · '+s.count+' en mémoire':'')));
       }
+      row.appendChild(line);
+      // Ce qui a été essayé, pour comprendre la panne
+      if(!s.ok&&s.error&&s.error!=='Échec')row.appendChild(h('div',{style:{fontSize:10,lineHeight:1.4,color:'#9ca3af',marginTop:3,wordBreak:'break-word'}},s.error));
       diag.appendChild(row);
     });
     w.appendChild(diag);

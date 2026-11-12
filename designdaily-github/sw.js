@@ -1,6 +1,6 @@
 // DesignDaily — Service Worker
 // Rôle : permettre l'ouverture de l'app sans connexion, et charger la dernière version dès qu'il y a du réseau.
-const CACHE = 'designdaily-v12';
+const CACHE = 'designdaily-v13';
 const PRECACHE = ['./index.html','./manifest.json','./icon-192.png','./icon-512.png','./icon-48.png'];
 
 self.addEventListener('install', e => {

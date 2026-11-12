@@ -1,0 +1,54 @@
+# DesignDaily — collecte automatique des articles
+# Toutes les 30 minutes, GitHub va chercher les articles de chaque source (sources.json)
+# et publie le résultat dans le fichier articles.json de la branche « data ».
+# L'application télécharge ce fichier : plus besoin de relais externes.
+name: Collecte des articles
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'sources.json'
+      - 'collecte/**'
+      - '.github/workflows/collecte.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collecte
+  cancel-in-progress: false
+
+jobs:
+  collecte:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Récupérer la collecte précédente
+        run: |
+          if git fetch --depth=1 origin data 2>/dev/null; then
+            git show FETCH_HEAD:articles.json > previous.json 2>/dev/null || echo '{}' > previous.json
+          else
+            echo '{}' > previous.json
+          fi
+
+      - name: Collecter les articles
+        run: node collecte/collecte.mjs sources.json previous.json out/articles.json
+
+      - name: Publier articles.json sur la branche data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd out
+          git init -q -b data
+          git config user.name "DesignDaily Collecte"
+          git config user.email "actions@users.noreply.github.com"
+          git add articles.json
+          git commit -q -m "Collecte du $(date -u '+%Y-%m-%d %H:%M') UTC"
+          git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
